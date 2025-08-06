@@ -1,18 +1,25 @@
+// App.tsx
 import React from 'react';
+import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-
-// Import your navigation, theme, and components
+import { AuthProvider } from './src/contexts/AuthContext';
 import AppNavigator from './src/navigation/AppNavigator';
-import { ThemeProvider } from './src/contexts/ThemeContext';
-import AppStatusBar from './src/components/AppStatusBar';
 
-export default function App() {
+// Import any other providers you might have
+// import { ThemeProvider } from './src/contexts/ThemeContext';
+
+const App: React.FC = () => {
   return (
     <SafeAreaProvider>
-      <ThemeProvider>
-        <AppStatusBar />
-        <AppNavigator />
-      </ThemeProvider>
+      <AuthProvider>
+        {/* Add other providers here if needed */}
+        {/* <ThemeProvider> */}
+          <AppNavigator />
+          <StatusBar style="light" />
+        {/* </ThemeProvider> */}
+      </AuthProvider>
     </SafeAreaProvider>
   );
-}
+};
+
+export default App;

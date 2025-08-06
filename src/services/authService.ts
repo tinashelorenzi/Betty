@@ -1,10 +1,11 @@
+// src/services/authService.ts
 import axios, { AxiosInstance, AxiosError } from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Get the base URL from environment variables
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:8000';
 
-// Types for API responses (based on your FastAPI backend)
+// Types for API responses (matching your FastAPI backend)
 interface UserResponse {
   uid: string;
   email: string;
@@ -25,6 +26,7 @@ interface AuthTokenResponse {
   user: UserResponse;
 }
 
+// Request types (matching your FastAPI UserCreate and UserLogin models)
 interface LoginRequest {
   email: string;
   password: string;
@@ -36,8 +38,11 @@ interface RegisterRequest {
   confirm_password: string;
   first_name: string;
   last_name: string;
+  location?: string;
+  timezone?: string;
 }
 
+// Form data types for React Native components
 interface RegisterFormData {
   firstName: string;
   lastName: string;
@@ -46,10 +51,22 @@ interface RegisterFormData {
   confirmPassword: string;
 }
 
+interface LoginFormData {
+  email: string;
+  password: string;
+}
+
+interface AuthError {
+  message: string;
+  statusCode?: number;
+  field?: string;
+}
+
 class AuthService {
   private baseURL: string;
   private token: string | null = null;
   private api: AxiosInstance;
+  private user: UserResponse | null = null;
 
   constructor() {
     this.baseURL = API_BASE_URL;
@@ -57,7 +74,7 @@ class AuthService {
     // Create axios instance with default config
     this.api = axios.create({
       baseURL: this.baseURL,
-      timeout: 10000,
+      timeout: 15000,
       headers: {
         'Content-Type': 'application/json',
       },
@@ -100,6 +117,7 @@ class AuthService {
       this.token = token;
     } catch (error) {
       console.error('Error storing token:', error);
+      throw new Error('Failed to store authentication token');
     }
   }
 
@@ -119,9 +137,40 @@ class AuthService {
   async clearToken(): Promise<void> {
     try {
       await AsyncStorage.removeItem('authToken');
+      await AsyncStorage.removeItem('userData');
       this.token = null;
+      this.user = null;
     } catch (error) {
       console.error('Error clearing token:', error);
+    }
+  }
+
+  // ============================================================================
+  // USER DATA MANAGEMENT
+  // ============================================================================
+
+  async storeUserData(user: UserResponse): Promise<void> {
+    try {
+      await AsyncStorage.setItem('userData', JSON.stringify(user));
+      this.user = user;
+    } catch (error) {
+      console.error('Error storing user data:', error);
+    }
+  }
+
+  async getStoredUserData(): Promise<UserResponse | null> {
+    try {
+      if (this.user) return this.user;
+      
+      const userData = await AsyncStorage.getItem('userData');
+      if (userData) {
+        this.user = JSON.parse(userData);
+        return this.user;
+      }
+      return null;
+    } catch (error) {
+      console.error('Error getting stored user data:', error);
+      return null;
     }
   }
 
@@ -137,12 +186,46 @@ class AuthService {
         confirm_password: userData.confirmPassword,
         first_name: userData.firstName,
         last_name: userData.lastName,
+        location: 'Johannesburg, South Africa', // Default from your backend
+        timezone: 'Africa/Johannesburg', // Default from your backend
       };
 
-      const response = await this.api.post<AuthTokenResponse>('/auth/register', requestData);
+      const response = await this.api.post<UserResponse>('/auth/register', requestData);
+
+      // Note: Your FastAPI register endpoint returns UserResponse, not AuthTokenResponse
+      // So we need to automatically log in after registration
+      const loginResponse = await this.login({
+        email: userData.email,
+        password: userData.password,
+      });
+
+      return loginResponse;
+    } catch (error) {
+      throw this.handleError(error);
+    }
+  }
+
+  async login(credentials: LoginFormData): Promise<AuthTokenResponse> {
+    try {
+      // Your FastAPI login endpoint expects query parameters, not JSON body
+      const params = new URLSearchParams();
+      params.append('email', credentials.email);
+      params.append('password', credentials.password);
+
+      const response = await axios.post<AuthTokenResponse>(
+        `${this.baseURL}/auth/login?${params.toString()}`,
+        null, // No body needed since using query params
+        {
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          timeout: 15000,
+        }
+      );
 
       if (response.data.access_token) {
         await this.storeToken(response.data.access_token);
+        await this.storeUserData(response.data.user);
       }
 
       return response.data;
@@ -151,44 +234,24 @@ class AuthService {
     }
   }
 
-  async login(email: string, password: string): Promise<AuthTokenResponse> {
+  async logout(): Promise<void> {
     try {
-      const requestData: LoginRequest = {
-        email,
-        password,
-      };
-
-      const response = await this.api.post<AuthTokenResponse>('/auth/login', requestData);
-
-      if (response.data.access_token) {
-        await this.storeToken(response.data.access_token);
-      }
-
-      return response.data;
+      await this.clearToken();
     } catch (error) {
-      throw this.handleError(error);
+      console.error('Error during logout:', error);
+      // Still clear local data even if API call fails
+      await this.clearToken();
     }
   }
 
-  async logout(): Promise<{ success: boolean }> {
-    try {
-      // Clear local token
-      await this.clearToken();
-      
-      // You can also call a logout endpoint if your API has one
-      // await this.api.post('/auth/logout');
-      
-      return { success: true };
-    } catch (error) {
-      // Even if API call fails, clear local token
-      await this.clearToken();
-      throw this.handleError(error);
-    }
-  }
+  // ============================================================================
+  // USER PROFILE METHODS
+  // ============================================================================
 
   async getCurrentUser(): Promise<UserResponse> {
     try {
       const response = await this.api.get<UserResponse>('/auth/me');
+      await this.storeUserData(response.data);
       return response.data;
     } catch (error) {
       throw this.handleError(error);
@@ -198,67 +261,130 @@ class AuthService {
   async verifyToken(): Promise<{ valid: boolean; user: UserResponse }> {
     try {
       const response = await this.api.post<{ valid: boolean; user: UserResponse }>('/auth/verify-token');
+      
+      if (response.data.valid && response.data.user) {
+        await this.storeUserData(response.data.user);
+      }
+      
       return response.data;
     } catch (error) {
       throw this.handleError(error);
     }
   }
 
-  async isLoggedIn(): Promise<boolean> {
+  // ============================================================================
+  // AUTHENTICATION STATE
+  // ============================================================================
+
+  async isAuthenticated(): Promise<boolean> {
     try {
       const token = await this.getStoredToken();
       if (!token) return false;
 
-      // Verify token is still valid
-      await this.verifyToken();
-      return true;
+      // Verify token with backend
+      const verification = await this.verifyToken();
+      return verification.valid;
     } catch (error) {
-      // Token is invalid, clear it
+      console.error('Error checking authentication:', error);
       await this.clearToken();
       return false;
     }
+  }
+
+  getCurrentUserData(): UserResponse | null {
+    return this.user;
   }
 
   // ============================================================================
   // ERROR HANDLING
   // ============================================================================
 
-  private handleError(error: unknown): Error {
+  private handleError(error: unknown): IAuthError {
     if (axios.isAxiosError(error)) {
-      const axiosError = error as AxiosError<{ detail?: string; message?: string }>;
+      const axiosError = error as AxiosError<any>;
       
       if (axiosError.response) {
         // Server responded with error status
-        const message = axiosError.response.data?.detail || 
-                       axiosError.response.data?.message || 
-                       `Server error: ${axiosError.response.status}`;
+        const statusCode = axiosError.response.status;
+        const errorData = axiosError.response.data;
         
-        return new Error(message);
+        let message = 'An error occurred';
+        
+        if (typeof errorData === 'string') {
+          message = errorData;
+        } else if (errorData?.detail) {
+          message = errorData.detail;
+        } else if (errorData?.message) {
+          message = errorData.message;
+        }
+
+        // Handle specific status codes
+        switch (statusCode) {
+          case 400:
+            if (message.includes('email already exists')) {
+              return { message: 'An account with this email already exists', statusCode, field: 'email' };
+            }
+            if (message.includes('Passwords do not match')) {
+              return { message: 'Passwords do not match', statusCode, field: 'password' };
+            }
+            break;
+          case 401:
+            return { message: 'Invalid email or password', statusCode };
+          case 422:
+            return { message: 'Please check your input and try again', statusCode };
+          case 500:
+            return { message: 'Server error. Please try again later.', statusCode };
+        }
+        
+        return { message, statusCode };
       } else if (axiosError.request) {
-        // Request made but no response received
-        return new Error('Network error - please check your connection');
+        // Network error
+        return { 
+          message: 'Network error. Please check your internet connection and try again.',
+          statusCode: 0 
+        };
       }
     }
     
-    // Something else happened
+    // Generic error
     const message = error instanceof Error ? error.message : 'An unexpected error occurred';
-    return new Error(message);
+    return { message };
   }
 
   // ============================================================================
   // UTILITY METHODS
   // ============================================================================
 
-  getAuthHeaders(): { Authorization?: string } {
-    return this.token ? { Authorization: `Bearer ${this.token}` } : {};
+  getBaseURL(): string {
+    return this.baseURL;
   }
 
-  isNetworkAvailable(): boolean {
-    // You can implement network checking logic here
-    // For now, just return true
-    return true;
+  async checkServerHealth(): Promise<boolean> {
+    try {
+      const response = await axios.get(`${this.baseURL}/health`, { timeout: 5000 });
+      return response.status === 200;
+    } catch (error) {
+      console.error('Server health check failed:', error);
+      return false;
+    }
   }
 }
 
-// Export a singleton instance
-export default new AuthService();
+// Export singleton instance
+export const authService = new AuthService();
+export default authService;
+
+// Export types for use in components
+export type { 
+  UserResponse, 
+  AuthTokenResponse, 
+  RegisterFormData, 
+  LoginFormData 
+};
+
+// Export the AuthError interface separately to avoid conflicts
+export interface IAuthError {
+  message: string;
+  statusCode?: number;
+  field?: string;
+}

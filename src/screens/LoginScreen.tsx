@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+// src/screens/LoginScreen.tsx
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -10,11 +11,14 @@ import {
   Platform,
   Alert,
   Dimensions,
+  ActivityIndicator,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Animatable from 'react-native-animatable';
 import { RouteProp } from '@react-navigation/native';
 import { LoginScreenNavigationProp, RootStackParamList } from '../navigation/AppNavigator';
+import { useAuth } from '../contexts/AuthContext';
+import { authService, LoginFormData, IAuthError } from '../services/authService';
 
 const { width, height } = Dimensions.get('window');
 
@@ -24,31 +28,88 @@ interface LoginScreenProps {
 }
 
 const LoginScreen: React.FC<LoginScreenProps> = ({ navigation }) => {
-  const [email, setEmail] = useState<string>('');
-  const [password, setPassword] = useState<string>('');
+  const [formData, setFormData] = useState<LoginFormData>({
+    email: '',
+    password: '',
+  });
   const [loading, setLoading] = useState<boolean>(false);
   const [showPassword, setShowPassword] = useState<boolean>(false);
+  const [serverOnline, setServerOnline] = useState<boolean>(true);
+  
+  const { login: contextLogin } = useAuth();
 
-  const handleLogin = async (): Promise<void> => {
+  // Check server health on mount
+  useEffect(() => {
+    checkServerHealth();
+  }, []);
+
+  const checkServerHealth = async (): Promise<void> => {
+    try {
+      const isOnline = await authService.checkServerHealth();
+      setServerOnline(isOnline);
+      if (!isOnline) {
+        Alert.alert(
+          'Server Offline',
+          'Cannot connect to the server. Please check your network connection or try again later.',
+          [{ text: 'OK' }]
+        );
+      }
+    } catch (error) {
+      setServerOnline(false);
+    }
+  };
+
+  const handleInputChange = (field: keyof LoginFormData, value: string): void => {
+    setFormData(prev => ({
+      ...prev,
+      [field]: value
+    }));
+  };
+
+  const validateForm = (): boolean => {
+    const { email, password } = formData;
+    
     if (!email || !password) {
       Alert.alert('Error', 'Please fill in all fields');
+      return false;
+    }
+    
+    // Basic email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      Alert.alert('Error', 'Please enter a valid email address');
+      return false;
+    }
+    
+    return true;
+  };
+
+  const handleLogin = async (): Promise<void> => {
+    if (!validateForm()) return;
+    if (!serverOnline) {
+      await checkServerHealth();
       return;
     }
 
     setLoading(true);
     try {
-      // TODO: Implement API call to your FastAPI backend
-      console.log('Login attempt:', { email, password });
+      const response = await authService.login(formData);
       
-      // Placeholder - replace with actual API call
-      // const response = await authService.login(email, password);
+      // Update auth context
+      await contextLogin(response.user, response.access_token);
       
-      // For now, just navigate to main app (you'll implement this later)
-      Alert.alert('Success', 'Login functionality will be implemented next!');
+      // Navigate to main app (replace with your main screen)
+      navigation.reset({
+        index: 0,
+        routes: [{ name: 'Home' }], // Replace 'Home' with your main screen name
+      });
       
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Something went wrong';
-      Alert.alert('Login Failed', errorMessage);
+      const authError = error as IAuthError;
+      Alert.alert(
+        'Login Failed', 
+        authError.message || 'Something went wrong during login'
+      );
     } finally {
       setLoading(false);
     }
@@ -62,106 +123,117 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ navigation }) => {
     setShowPassword(!showPassword);
   };
 
+  const handleForgotPassword = (): void => {
+    // TODO: Implement forgot password functionality
+    Alert.alert(
+      'Forgot Password',
+      'Forgot password functionality will be implemented soon. Please contact support for now.',
+      [{ text: 'OK' }]
+    );
+  };
+
   return (
     <LinearGradient colors={['#667eea', '#764ba2']} style={styles.container}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.keyboardContainer}
       >
-        <ScrollView contentContainerStyle={styles.scrollContainer}>
-          <Animatable.View animation="slideInUp" duration={1000} style={styles.formContainer}>
-            
-            {/* Logo */}
-            <Animatable.Image
-              animation="bounceIn"
-              duration={1500}
-              source={require('../../assets/images/logo.png')}
-              style={styles.logo}
-              resizeMode="contain"
-            />
+        <ScrollView
+          contentContainerStyle={styles.scrollContainer}
+          showsVerticalScrollIndicator={false}
+        >
+          {/* Header */}
+          <Animatable.View animation="fadeInDown" duration={1000} style={styles.header}>
+            <Text style={styles.title}>Welcome Back</Text>
+            <Text style={styles.subtitle}>Sign in to continue to Betty</Text>
+          </Animatable.View>
 
-            {/* Welcome Text */}
-            <Animatable.View animation="fadeInUp" delay={500} duration={1000}>
-              <Text style={styles.welcomeText}>Welcome Back</Text>
-              <Text style={styles.subtitleText}>Sign in to continue</Text>
+          {/* Server Status Indicator */}
+          {!serverOnline && (
+            <Animatable.View animation="slideInDown" style={styles.serverWarning}>
+              <Text style={styles.serverWarningText}>⚠️ Server connection issue</Text>
+              <TouchableOpacity onPress={checkServerHealth} style={styles.retryButton}>
+                <Text style={styles.retryButtonText}>Retry</Text>
+              </TouchableOpacity>
             </Animatable.View>
+          )}
 
-            {/* Login Form */}
-            <Animatable.View animation="fadeInUp" delay={800} duration={1000} style={styles.inputContainer}>
-              
-              <View style={styles.inputWrapper}>
+          {/* Form Container */}
+          <Animatable.View animation="fadeInUp" duration={1000} delay={300} style={styles.formContainer}>
+            
+            {/* Email Input */}
+            <View style={styles.inputContainer}>
+              <Text style={styles.inputLabel}>Email</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Enter your email"
+                placeholderTextColor="#999"
+                value={formData.email}
+                onChangeText={(value) => handleInputChange('email', value)}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoCorrect={false}
+                editable={!loading}
+              />
+            </View>
+
+            {/* Password Input */}
+            <View style={styles.inputContainer}>
+              <Text style={styles.inputLabel}>Password</Text>
+              <View style={styles.passwordContainer}>
                 <TextInput
-                  style={styles.input}
-                  placeholder="Email Address"
-                  placeholderTextColor="#a0a0a0"
-                  value={email}
-                  onChangeText={setEmail}
-                  keyboardType="email-address"
+                  style={styles.passwordInput}
+                  placeholder="Enter your password"
+                  placeholderTextColor="#999"
+                  value={formData.password}
+                  onChangeText={(value) => handleInputChange('password', value)}
+                  secureTextEntry={!showPassword}
                   autoCapitalize="none"
                   autoCorrect={false}
+                  editable={!loading}
                 />
-              </View>
-
-              <View style={styles.inputWrapper}>
-                <View style={styles.passwordContainer}>
-                  <TextInput
-                    style={styles.passwordInput}
-                    placeholder="Password"
-                    placeholderTextColor="#a0a0a0"
-                    value={password}
-                    onChangeText={setPassword}
-                    secureTextEntry={!showPassword}
-                    autoCapitalize="none"
-                  />
-                  <TouchableOpacity
-                    style={styles.eyeIcon}
-                    onPress={togglePasswordVisibility}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={styles.eyeIconText}>
-                      {showPassword ? '👁️' : '👁️‍🗨️'}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-
-              {/* Login Button */}
-              <TouchableOpacity
-                style={[styles.loginButton, loading && styles.loginButtonDisabled]}
-                onPress={handleLogin}
-                disabled={loading}
-              >
-                <LinearGradient
-                  colors={['#4c63d2', '#667eea']}
-                  style={styles.gradientButton}
+                <TouchableOpacity
+                  onPress={togglePasswordVisibility}
+                  style={styles.eyeButton}
+                  disabled={loading}
                 >
-                  <Text style={styles.loginButtonText}>
-                    {loading ? 'Signing In...' : 'Sign In'}
+                  <Text style={styles.eyeButtonText}>
+                    {showPassword ? '👁️' : '👁️‍🗨️'}
                   </Text>
-                </LinearGradient>
-              </TouchableOpacity>
-
-              {/* Forgot Password Link */}
-              <TouchableOpacity style={styles.forgotPasswordContainer}>
-                <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
-              </TouchableOpacity>
-
-              {/* Divider */}
-              <View style={styles.dividerContainer}>
-                <View style={styles.divider} />
-                <Text style={styles.dividerText}>OR</Text>
-                <View style={styles.divider} />
+                </TouchableOpacity>
               </View>
+            </View>
 
-              {/* Register Link */}
-              <TouchableOpacity onPress={navigateToRegister} style={styles.registerContainer}>
-                <Text style={styles.registerText}>
-                  Don't have an account? {' '}
-                  <Text style={styles.registerLink}>Sign Up</Text>
-                </Text>
+            {/* Forgot Password */}
+            <TouchableOpacity
+              onPress={handleForgotPassword}
+              style={styles.forgotPasswordContainer}
+              disabled={loading}
+            >
+              <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
+            </TouchableOpacity>
+
+            {/* Login Button */}
+            <TouchableOpacity
+              style={[styles.loginButton, (!serverOnline || loading) && styles.disabledButton]}
+              onPress={handleLogin}
+              disabled={loading || !serverOnline}
+            >
+              {loading ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Text style={styles.loginButtonText}>Sign In</Text>
+              )}
+            </TouchableOpacity>
+
+            {/* Register Link */}
+            <View style={styles.registerContainer}>
+              <Text style={styles.registerText}>Don't have an account? </Text>
+              <TouchableOpacity onPress={navigateToRegister} disabled={loading}>
+                <Text style={styles.registerLink}>Sign Up</Text>
               </TouchableOpacity>
+            </View>
 
-            </Animatable.View>
           </Animatable.View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -181,133 +253,145 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     padding: 20,
   },
+  header: {
+    alignItems: 'center',
+    marginBottom: 40,
+  },
+  title: {
+    fontSize: 32,
+    fontWeight: 'bold',
+    color: '#fff',
+    marginBottom: 8,
+  },
+  subtitle: {
+    fontSize: 16,
+    color: '#E8E8E8',
+    textAlign: 'center',
+  },
+  serverWarning: {
+    backgroundColor: 'rgba(255, 193, 7, 0.9)',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  serverWarningText: {
+    color: '#856404',
+    fontWeight: '500',
+    flex: 1,
+  },
+  retryButton: {
+    backgroundColor: '#856404',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 4,
+  },
+  retryButtonText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '500',
+  },
   formContainer: {
     backgroundColor: 'rgba(255, 255, 255, 0.95)',
     borderRadius: 20,
     padding: 30,
-    marginHorizontal: 20,
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
       height: 10,
     },
     shadowOpacity: 0.25,
-    shadowRadius: 20,
-    elevation: 10,
-  },
-  logo: {
-    width: 120,
-    height: 120,
-    alignSelf: 'center',
-    marginBottom: 20,
-  },
-  welcomeText: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#333',
-    textAlign: 'center',
-    marginBottom: 8,
-  },
-  subtitleText: {
-    fontSize: 16,
-    color: '#666',
-    textAlign: 'center',
-    marginBottom: 30,
+    shadowRadius: 3.84,
+    elevation: 5,
   },
   inputContainer: {
-    width: '100%',
-  },
-  inputWrapper: {
     marginBottom: 20,
   },
-  input: {
-    backgroundColor: '#f8f9fa',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
+  inputLabel: {
     fontSize: 16,
+    fontWeight: '600',
     color: '#333',
+    marginBottom: 8,
+  },
+  input: {
     borderWidth: 1,
-    borderColor: '#e9ecef',
+    borderColor: '#E0E0E0',
+    borderRadius: 10,
+    paddingHorizontal: 15,
+    paddingVertical: 12,
+    fontSize: 16,
+    backgroundColor: '#fff',
   },
   passwordContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#f8f9fa',
-    borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#e9ecef',
+    borderColor: '#E0E0E0',
+    borderRadius: 10,
+    backgroundColor: '#fff',
   },
   passwordInput: {
     flex: 1,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
+    paddingHorizontal: 15,
+    paddingVertical: 12,
     fontSize: 16,
-    color: '#333',
   },
-  eyeIcon: {
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    justifyContent: 'center',
-    alignItems: 'center',
+  eyeButton: {
+    paddingHorizontal: 15,
+    paddingVertical: 12,
   },
-  eyeIconText: {
-    fontSize: 20,
-    color: '#666',
-  },
-  loginButton: {
-    marginTop: 10,
-    marginBottom: 15,
-    borderRadius: 12,
-    overflow: 'hidden',
-  },
-  loginButtonDisabled: {
-    opacity: 0.7,
-  },
-  gradientButton: {
-    paddingVertical: 16,
-    paddingHorizontal: 32,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  loginButtonText: {
-    color: 'white',
+  eyeButtonText: {
     fontSize: 18,
-    fontWeight: '600',
   },
   forgotPasswordContainer: {
-    alignItems: 'center',
-    marginBottom: 20,
+    alignSelf: 'flex-end',
+    marginBottom: 30,
   },
   forgotPasswordText: {
     color: '#667eea',
     fontSize: 14,
+    fontWeight: '500',
   },
-  dividerContainer: {
-    flexDirection: 'row',
+  loginButton: {
+    backgroundColor: '#667eea',
+    borderRadius: 10,
+    paddingVertical: 15,
     alignItems: 'center',
-    marginVertical: 20,
+    marginBottom: 20,
+    shadowColor: '#667eea',
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 4.65,
+    elevation: 8,
   },
-  divider: {
-    flex: 1,
-    height: 1,
-    backgroundColor: '#e0e0e0',
+  disabledButton: {
+    backgroundColor: '#ccc',
+    shadowOpacity: 0,
+    elevation: 0,
   },
-  dividerText: {
-    marginHorizontal: 15,
-    color: '#999',
-    fontSize: 14,
+  loginButtonText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: 'bold',
   },
   registerContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
     alignItems: 'center',
   },
   registerText: {
     color: '#666',
-    fontSize: 14,
+    fontSize: 16,
   },
   registerLink: {
     color: '#667eea',
-    fontWeight: '600',
+    fontSize: 16,
+    fontWeight: 'bold',
   },
 });
 

@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+// src/screens/RegisterScreen.tsx
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -10,12 +11,14 @@ import {
   Platform,
   Alert,
   Dimensions,
+  ActivityIndicator,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Animatable from 'react-native-animatable';
 import { RouteProp } from '@react-navigation/native';
 import { RegisterScreenNavigationProp, RootStackParamList } from '../navigation/AppNavigator';
-import { useTheme } from '../contexts/ThemeContext';
+import { useAuth } from '../contexts/AuthContext';
+import { authService, RegisterFormData, IAuthError } from '../services/authService';
 import PasswordInput from '../components/PasswordInput';
 
 const { width, height } = Dimensions.get('window');
@@ -25,16 +28,8 @@ interface RegisterScreenProps {
   route: RouteProp<RootStackParamList, 'Register'>;
 }
 
-interface FormData {
-  firstName: string;
-  lastName: string;
-  email: string;
-  password: string;
-  confirmPassword: string;
-}
-
 const RegisterScreen: React.FC<RegisterScreenProps> = ({ navigation }) => {
-  const [formData, setFormData] = useState<FormData>({
+  const [formData, setFormData] = useState<RegisterFormData>({
     firstName: '',
     lastName: '',
     email: '',
@@ -42,37 +37,90 @@ const RegisterScreen: React.FC<RegisterScreenProps> = ({ navigation }) => {
     confirmPassword: '',
   });
   const [loading, setLoading] = useState<boolean>(false);
-  const { theme } = useTheme();
+  const [serverOnline, setServerOnline] = useState<boolean>(true);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  
+  const { login: contextLogin } = useAuth();
 
-  const handleInputChange = (field: keyof FormData, value: string): void => {
+  // Check server health on mount
+  useEffect(() => {
+    checkServerHealth();
+  }, []);
+
+  const checkServerHealth = async (): Promise<void> => {
+    try {
+      const isOnline = await authService.checkServerHealth();
+      setServerOnline(isOnline);
+      if (!isOnline) {
+        Alert.alert(
+          'Server Offline',
+          'Cannot connect to the server. Please check your network connection or try again later.',
+          [{ text: 'OK' }]
+        );
+      }
+    } catch (error) {
+      setServerOnline(false);
+    }
+  };
+
+  const handleInputChange = (field: keyof RegisterFormData, value: string): void => {
     setFormData(prev => ({
       ...prev,
       [field]: value
     }));
+    
+    // Clear field error when user starts typing
+    if (fieldErrors[field]) {
+      setFieldErrors(prev => ({
+        ...prev,
+        [field]: ''
+      }));
+    }
   };
 
   const validateForm = (): boolean => {
     const { firstName, lastName, email, password, confirmPassword } = formData;
+    const errors: Record<string, string> = {};
     
-    if (!firstName || !lastName || !email || !password || !confirmPassword) {
-      Alert.alert('Error', 'Please fill in all fields');
-      return false;
+    // Reset previous errors
+    setFieldErrors({});
+    
+    if (!firstName.trim()) {
+      errors.firstName = 'First name is required';
     }
     
-    if (password !== confirmPassword) {
-      Alert.alert('Error', 'Passwords do not match');
-      return false;
+    if (!lastName.trim()) {
+      errors.lastName = 'Last name is required';
     }
     
-    if (password.length < 6) {
-      Alert.alert('Error', 'Password must be at least 6 characters long');
-      return false;
+    if (!email.trim()) {
+      errors.email = 'Email is required';
+    } else {
+      // Basic email validation
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        errors.email = 'Please enter a valid email address';
+      }
     }
     
-    // Basic email validation
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
-      Alert.alert('Error', 'Please enter a valid email address');
+    if (!password) {
+      errors.password = 'Password is required';
+    } else if (password.length < 6) {
+      errors.password = 'Password must be at least 6 characters long';
+    }
+    
+    if (!confirmPassword) {
+      errors.confirmPassword = 'Please confirm your password';
+    } else if (password !== confirmPassword) {
+      errors.confirmPassword = 'Passwords do not match';
+    }
+    
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
+      
+      // Show the first error in an alert
+      const firstError = Object.values(errors)[0];
+      Alert.alert('Validation Error', firstError);
       return false;
     }
     
@@ -81,24 +129,48 @@ const RegisterScreen: React.FC<RegisterScreenProps> = ({ navigation }) => {
 
   const handleRegister = async (): Promise<void> => {
     if (!validateForm()) return;
+    if (!serverOnline) {
+      await checkServerHealth();
+      return;
+    }
 
     setLoading(true);
     try {
-      // TODO: Implement API call to your FastAPI backend
-      console.log('Register attempt:', formData);
+      const response = await authService.register(formData);
       
-      // Placeholder - replace with actual API call
-      // const response = await authService.register(formData);
+      // Update auth context (registration automatically logs in)
+      await contextLogin(response.user, response.access_token);
       
       Alert.alert(
-        'Success', 
-        'Registration functionality will be implemented next!',
-        [{ text: 'OK', onPress: () => navigation.navigate('Login') }]
+        'Registration Successful!',
+        `Welcome to Betty, ${response.user.first_name}! Your account has been created successfully.`,
+        [
+          {
+            text: 'Get Started',
+            onPress: () => {
+              navigation.reset({
+                index: 0,
+                routes: [{ name: 'Home' }], // Replace 'Home' with your main screen name
+              });
+            }
+          }
+        ]
       );
       
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Something went wrong';
-      Alert.alert('Registration Failed', errorMessage);
+      const authError = error as IAuthError;
+      
+      // Handle field-specific errors
+      if (authError.field) {
+        setFieldErrors({
+          [authError.field]: authError.message
+        });
+      }
+      
+      Alert.alert(
+        'Registration Failed', 
+        authError.message || 'Something went wrong during registration'
+      );
     } finally {
       setLoading(false);
     }
@@ -108,172 +180,141 @@ const RegisterScreen: React.FC<RegisterScreenProps> = ({ navigation }) => {
     navigation.navigate('Login');
   };
 
-  // Dynamic styles based on theme
-  const dynamicStyles = StyleSheet.create({
-    formContainer: {
-      backgroundColor: theme.colors.backgroundOverlay,
-      borderRadius: theme.borderRadius.xl,
-      padding: theme.spacing.xl,
-      marginHorizontal: 10,
-      ...theme.shadow.large,
-    },
-    welcomeText: {
-      fontSize: theme.fontSize.xxl,
-      fontWeight: theme.fontWeight.bold,
-      color: theme.colors.textPrimary,
-      textAlign: 'center',
-      marginBottom: 8,
-    },
-    subtitleText: {
-      fontSize: theme.fontSize.md,
-      color: theme.colors.textSecondary,
-      textAlign: 'center',
-      marginBottom: 30,
-    },
-    input: {
-      backgroundColor: theme.colors.inputBackground,
-      borderRadius: theme.borderRadius.md,
-      paddingHorizontal: 16,
-      paddingVertical: 14,
-      fontSize: theme.fontSize.md,
-      color: theme.colors.textPrimary,
-      borderWidth: 1,
-      borderColor: theme.colors.inputBorder,
-    },
-    termsText: {
-      textAlign: 'center',
-      fontSize: theme.fontSize.xs,
-      color: theme.colors.textSecondary,
-      marginBottom: 20,
-      lineHeight: 18,
-    },
-    linkText: {
-      color: theme.colors.accent,
-      fontWeight: theme.fontWeight.semibold,
-    },
-    loginText: {
-      color: theme.colors.textSecondary,
-      fontSize: theme.fontSize.sm,
-    },
-    loginLink: {
-      color: theme.colors.accent,
-      fontWeight: theme.fontWeight.semibold,
-    },
-  });
-
   return (
-    <LinearGradient colors={theme.gradients.background} style={styles.container}>
+    <LinearGradient colors={['#667eea', '#764ba2']} style={styles.container}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.keyboardContainer}
       >
-        <ScrollView contentContainerStyle={styles.scrollContainer}>
-          <Animatable.View animation="slideInUp" duration={1000} style={dynamicStyles.formContainer}>
+        <ScrollView
+          contentContainerStyle={styles.scrollContainer}
+          showsVerticalScrollIndicator={false}
+        >
+          {/* Header */}
+          <Animatable.View animation="fadeInDown" duration={1000} style={styles.header}>
+            <Text style={styles.title}>Create Account</Text>
+            <Text style={styles.subtitle}>Join Betty and boost your productivity</Text>
+          </Animatable.View>
+
+          {/* Server Status Indicator */}
+          {!serverOnline && (
+            <Animatable.View animation="slideInDown" style={styles.serverWarning}>
+              <Text style={styles.serverWarningText}>⚠️ Server connection issue</Text>
+              <TouchableOpacity onPress={checkServerHealth} style={styles.retryButton}>
+                <Text style={styles.retryButtonText}>Retry</Text>
+              </TouchableOpacity>
+            </Animatable.View>
+          )}
+
+          {/* Form Container */}
+          <Animatable.View animation="fadeInUp" duration={1000} delay={300} style={styles.formContainer}>
             
-            {/* Logo */}
-            <Animatable.Image
-              animation="bounceIn"
-              duration={1500}
-              source={require('../../assets/images/logo.png')}
-              style={styles.logo}
-              resizeMode="contain"
-            />
+            {/* First Name Input */}
+            <View style={styles.inputContainer}>
+              <Text style={styles.inputLabel}>First Name</Text>
+              <TextInput
+                style={[styles.input, fieldErrors.firstName && styles.inputError]}
+                placeholder="Enter your first name"
+                placeholderTextColor="#999"
+                value={formData.firstName}
+                onChangeText={(value) => handleInputChange('firstName', value)}
+                autoCapitalize="words"
+                autoCorrect={false}
+                editable={!loading}
+              />
+              {fieldErrors.firstName && (
+                <Text style={styles.errorText}>{fieldErrors.firstName}</Text>
+              )}
+            </View>
 
-            {/* Welcome Text */}
-            <Animatable.View animation="fadeInUp" delay={500} duration={1000}>
-              <Text style={dynamicStyles.welcomeText}>Create Account</Text>
-              <Text style={dynamicStyles.subtitleText}>Join us today</Text>
-            </Animatable.View>
+            {/* Last Name Input */}
+            <View style={styles.inputContainer}>
+              <Text style={styles.inputLabel}>Last Name</Text>
+              <TextInput
+                style={[styles.input, fieldErrors.lastName && styles.inputError]}
+                placeholder="Enter your last name"
+                placeholderTextColor="#999"
+                value={formData.lastName}
+                onChangeText={(value) => handleInputChange('lastName', value)}
+                autoCapitalize="words"
+                autoCorrect={false}
+                editable={!loading}
+              />
+              {fieldErrors.lastName && (
+                <Text style={styles.errorText}>{fieldErrors.lastName}</Text>
+              )}
+            </View>
 
-            {/* Registration Form */}
-            <Animatable.View animation="fadeInUp" delay={800} duration={1000} style={styles.inputContainer}>
-              
-              {/* Name Fields Row */}
-              <View style={styles.nameRow}>
-                <View style={styles.nameInputWrapper}>
-                  <TextInput
-                    style={dynamicStyles.input}
-                    placeholder="First Name"
-                    placeholderTextColor={theme.colors.inputPlaceholder}
-                    value={formData.firstName}
-                    onChangeText={(value) => handleInputChange('firstName', value)}
-                    autoCapitalize="words"
-                  />
-                </View>
-                
-                <View style={styles.nameInputWrapper}>
-                  <TextInput
-                    style={dynamicStyles.input}
-                    placeholder="Last Name"
-                    placeholderTextColor={theme.colors.inputPlaceholder}
-                    value={formData.lastName}
-                    onChangeText={(value) => handleInputChange('lastName', value)}
-                    autoCapitalize="words"
-                  />
-                </View>
-              </View>
+            {/* Email Input */}
+            <View style={styles.inputContainer}>
+              <Text style={styles.inputLabel}>Email</Text>
+              <TextInput
+                style={[styles.input, fieldErrors.email && styles.inputError]}
+                placeholder="Enter your email"
+                placeholderTextColor="#999"
+                value={formData.email}
+                onChangeText={(value) => handleInputChange('email', value)}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoCorrect={false}
+                editable={!loading}
+              />
+              {fieldErrors.email && (
+                <Text style={styles.errorText}>{fieldErrors.email}</Text>
+              )}
+            </View>
 
-              <View style={styles.inputWrapper}>
-                <TextInput
-                  style={dynamicStyles.input}
-                  placeholder="Email Address"
-                  placeholderTextColor={theme.colors.inputPlaceholder}
-                  value={formData.email}
-                  onChangeText={(value) => handleInputChange('email', value)}
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                />
-              </View>
+            {/* Password Input */}
+            <View style={styles.inputContainer}>
+              <Text style={styles.inputLabel}>Password</Text>
+              <PasswordInput
+                value={formData.password}
+                onChangeText={(value) => handleInputChange('password', value)}
+                placeholder="Enter your password"
+                error={fieldErrors.password}
+                editable={!loading}
+              />
+              {fieldErrors.password && (
+                <Text style={styles.errorText}>{fieldErrors.password}</Text>
+              )}
+            </View>
 
-              <View style={styles.inputWrapper}>
-                <PasswordInput
-                  placeholder="Password"
-                  value={formData.password}
-                  onChangeText={(value) => handleInputChange('password', value)}
-                />
-              </View>
+            {/* Confirm Password Input */}
+            <View style={styles.inputContainer}>
+              <Text style={styles.inputLabel}>Confirm Password</Text>
+              <PasswordInput
+                value={formData.confirmPassword}
+                onChangeText={(value) => handleInputChange('confirmPassword', value)}
+                placeholder="Confirm your password"
+                error={fieldErrors.confirmPassword}
+                editable={!loading}
+              />
+              {fieldErrors.confirmPassword && (
+                <Text style={styles.errorText}>{fieldErrors.confirmPassword}</Text>
+              )}
+            </View>
 
-              <View style={styles.inputWrapper}>
-                <PasswordInput
-                  placeholder="Confirm Password"
-                  value={formData.confirmPassword}
-                  onChangeText={(value) => handleInputChange('confirmPassword', value)}
-                />
-              </View>
+            {/* Register Button */}
+            <TouchableOpacity
+              style={[styles.registerButton, (!serverOnline || loading) && styles.disabledButton]}
+              onPress={handleRegister}
+              disabled={loading || !serverOnline}
+            >
+              {loading ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Text style={styles.registerButtonText}>Create Account</Text>
+              )}
+            </TouchableOpacity>
 
-              {/* Register Button */}
-              <TouchableOpacity
-                style={[styles.registerButton, loading && styles.registerButtonDisabled]}
-                onPress={handleRegister}
-                disabled={loading}
-              >
-                <LinearGradient
-                  colors={theme.gradients.button}
-                  style={styles.gradientButton}
-                >
-                  <Text style={styles.registerButtonText}>
-                    {loading ? 'Creating Account...' : 'Create Account'}
-                  </Text>
-                </LinearGradient>
+            {/* Login Link */}
+            <View style={styles.loginContainer}>
+              <Text style={styles.loginText}>Already have an account? </Text>
+              <TouchableOpacity onPress={navigateToLogin} disabled={loading}>
+                <Text style={styles.loginLink}>Sign In</Text>
               </TouchableOpacity>
+            </View>
 
-              {/* Terms and Privacy */}
-              <Text style={dynamicStyles.termsText}>
-                By creating an account, you agree to our{' '}
-                <Text style={dynamicStyles.linkText}>Terms of Service</Text> and{' '}
-                <Text style={dynamicStyles.linkText}>Privacy Policy</Text>
-              </Text>
-
-              {/* Login Link */}
-              <TouchableOpacity onPress={navigateToLogin} style={styles.loginContainer}>
-                <Text style={dynamicStyles.loginText}>
-                  Already have an account? {' '}
-                  <Text style={dynamicStyles.loginLink}>Sign In</Text>
-                </Text>
-              </TouchableOpacity>
-
-            </Animatable.View>
           </Animatable.View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -292,51 +333,127 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     justifyContent: 'center',
     padding: 20,
-    paddingTop: 60,
   },
-  logo: {
-    width: 100,
-    height: 100,
-    alignSelf: 'center',
+  header: {
+    alignItems: 'center',
+    marginBottom: 40,
+  },
+  title: {
+    fontSize: 32,
+    fontWeight: 'bold',
+    color: '#fff',
+    marginBottom: 8,
+  },
+  subtitle: {
+    fontSize: 16,
+    color: '#E8E8E8',
+    textAlign: 'center',
+  },
+  serverWarning: {
+    backgroundColor: 'rgba(255, 193, 7, 0.9)',
+    borderRadius: 8,
+    padding: 12,
     marginBottom: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  serverWarningText: {
+    color: '#856404',
+    fontWeight: '500',
+    flex: 1,
+  },
+  retryButton: {
+    backgroundColor: '#856404',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 4,
+  },
+  retryButtonText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  formContainer: {
+    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    borderRadius: 20,
+    padding: 30,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 10,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
   },
   inputContainer: {
-    width: '100%',
-  },
-  nameRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
     marginBottom: 20,
   },
-  nameInputWrapper: {
-    flex: 1,
-    marginHorizontal: 5,
+  inputLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 8,
   },
-  inputWrapper: {
-    marginBottom: 20,
+  input: {
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+    borderRadius: 10,
+    paddingHorizontal: 15,
+    paddingVertical: 12,
+    fontSize: 16,
+    backgroundColor: '#fff',
+  },
+  inputError: {
+    borderColor: '#e74c3c',
+    borderWidth: 2,
+  },
+  errorText: {
+    color: '#e74c3c',
+    fontSize: 12,
+    marginTop: 4,
+    marginLeft: 4,
   },
   registerButton: {
-    marginTop: 10,
-    marginBottom: 15,
-    borderRadius: 12,
-    overflow: 'hidden',
-  },
-  registerButtonDisabled: {
-    opacity: 0.7,
-  },
-  gradientButton: {
-    paddingVertical: 16,
-    paddingHorizontal: 32,
+    backgroundColor: '#667eea',
+    borderRadius: 10,
+    paddingVertical: 15,
     alignItems: 'center',
-    justifyContent: 'center',
+    marginBottom: 20,
+    marginTop: 10,
+    shadowColor: '#667eea',
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 4.65,
+    elevation: 8,
+  },
+  disabledButton: {
+    backgroundColor: '#ccc',
+    shadowOpacity: 0,
+    elevation: 0,
   },
   registerButtonText: {
-    color: 'white',
+    color: '#fff',
     fontSize: 18,
-    fontWeight: '600',
+    fontWeight: 'bold',
   },
   loginContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
     alignItems: 'center',
+  },
+  loginText: {
+    color: '#666',
+    fontSize: 16,
+  },
+  loginLink: {
+    color: '#667eea',
+    fontSize: 16,
+    fontWeight: 'bold',
   },
 });
 
