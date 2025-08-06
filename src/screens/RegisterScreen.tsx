@@ -133,34 +133,25 @@ const RegisterScreen: React.FC<RegisterScreenProps> = ({ navigation }) => {
       await checkServerHealth();
       return;
     }
-
+  
     setLoading(true);
     try {
       const response = await authService.register(formData);
       
-      // Update auth context (registration automatically logs in)
+      // ✅ Just update auth context - AppNavigator will handle navigation automatically
       await contextLogin(response.user, response.access_token);
       
       Alert.alert(
         'Registration Successful!',
         `Welcome to Betty, ${response.user.first_name}! Your account has been created successfully.`,
-        [
-          {
-            text: 'Get Started',
-            onPress: () => {
-              navigation.reset({
-                index: 0,
-                routes: [{ name: 'Home' }], // Replace 'Home' with your main screen name
-              });
-            }
-          }
-        ]
+        [{ text: 'Get Started' }]
       );
+      
+      // No manual navigation needed! The AppNavigator will automatically navigate to MainApp
       
     } catch (error) {
       const authError = error as IAuthError;
       
-      // Handle field-specific errors
       if (authError.field) {
         setFieldErrors({
           [authError.field]: authError.message

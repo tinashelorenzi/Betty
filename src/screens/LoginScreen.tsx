@@ -90,19 +90,16 @@ const LoginScreen: React.FC<LoginScreenProps> = ({ navigation }) => {
       await checkServerHealth();
       return;
     }
-
+  
     setLoading(true);
     try {
       const response = await authService.login(formData);
       
-      // Update auth context
+      // ✅ Just update auth context - AppNavigator will handle navigation automatically
       await contextLogin(response.user, response.access_token);
       
-      // Navigate to main app (replace with your main screen)
-      navigation.reset({
-        index: 0,
-        routes: [{ name: 'Home' }], // Replace 'Home' with your main screen name
-      });
+      // No manual navigation needed! The AppNavigator will detect the auth state change
+      // and automatically navigate to MainApp
       
     } catch (error) {
       const authError = error as IAuthError;

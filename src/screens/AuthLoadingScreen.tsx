@@ -1,5 +1,5 @@
 // src/screens/AuthLoadingScreen.tsx
-import React from 'react';
+import React, { useEffect } from 'react';
 import {
   View,
   Text,
@@ -9,10 +9,35 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Animatable from 'react-native-animatable';
+import { RouteProp } from '@react-navigation/native';
+import { StackNavigationProp } from '@react-navigation/stack';
+import { RootStackParamList } from '../navigation/AppNavigator';
+import { useAuth } from '../contexts/AuthContext';
 
 const { width, height } = Dimensions.get('window');
 
-const AuthLoadingScreen: React.FC = () => {
+interface AuthLoadingScreenProps {
+  navigation: StackNavigationProp<RootStackParamList, 'AuthLoading'>;
+  route: RouteProp<RootStackParamList, 'AuthLoading'>;
+}
+
+const AuthLoadingScreen: React.FC<AuthLoadingScreenProps> = ({ navigation }) => {
+  const { isAuthenticated, loading } = useAuth();
+
+  useEffect(() => {
+    // Wait for auth check to complete, then navigate
+    if (!loading) {
+      const timer = setTimeout(() => {
+        navigation.reset({
+          index: 0,
+          routes: [{ name: isAuthenticated ? 'MainApp' : 'Auth' }],
+        });
+      }, 1000); // Small delay for better UX
+
+      return () => clearTimeout(timer);
+    }
+  }, [loading, isAuthenticated, navigation]);
+
   return (
     <LinearGradient colors={['#667eea', '#764ba2']} style={styles.container}>
       <View style={styles.content}>
