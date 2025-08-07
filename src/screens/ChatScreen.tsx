@@ -1,4 +1,4 @@
-// src/screens/ChatScreen.tsx - WITH AI TYPING ANIMATION
+// src/screens/ChatScreen.tsx - Complete Rewrite with Document File Messages
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
@@ -17,9 +17,11 @@ import { Ionicons } from '@expo/vector-icons';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { RouteProp } from '@react-navigation/native';
 
-import chatService, { MessageHistory, ChatMessage, ChatResponse } from '../services/chatService';
+import chatService from '../services/chatService';
+import { MessageHistory, ChatMessage, ChatResponse, MessageType } from '../types/chat';
 import { RootStackParamList } from '../navigation/AppNavigator';
-import TypingIndicator, { PulseTypingIndicator } from '../components/TypingIndicator';
+import TypingIndicator from '../components/TypingIndicator';
+import DocumentFileMessage from '../components/DocumentFileMessage';
 
 type ChatScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Chat'>;
 type ChatScreenRouteProp = RouteProp<RootStackParamList, 'Chat'>;
@@ -142,7 +144,7 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ navigation, route }) => {
       user_id: 'current_user',
       role: 'user',
       content: userMessage,
-      message_type: 'text',
+      message_type: MessageType.TEXT,
       timestamp: new Date().toISOString(),
     };
 
@@ -182,7 +184,7 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ navigation, route }) => {
         
         const chatMessage: ChatMessage = {
           content: userMessage,
-          message_type: 'text',
+          message_type: MessageType.TEXT,
         };
 
         response = await chatService.sendMessage(chatMessage, currentConversationId);
@@ -202,21 +204,27 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ navigation, route }) => {
 
       setMessages(prev => [...prev, aiMessage]);
 
-      // Enhanced notifications for special actions
-      if (response.document_created) {
-        Alert.alert(
-          '📄 Document Created',
-          `Betty has created a new document: "${response.document_title}"`,
-          [
-            { text: 'View Later', style: 'cancel' },
-            { 
-              text: 'View Now', 
-              onPress: () => navigation.navigate('Documents' as never)
-            }
-          ]
-        );
+      // Handle document creation - NEW TELEGRAM-STYLE APPROACH
+      if (response.document_created && response.document_content) {
+        const documentMessage: MessageHistory = {
+          id: (Date.now() + 2).toString(),
+          user_id: 'current_user',
+          role: 'assistant',
+          content: `📄 ${response.document_title || 'Document Created'}`,
+          message_type: MessageType.DOCUMENT_FILE,
+          timestamp: new Date().toISOString(),
+          conversation_id: currentConversationId,
+          document_title: response.document_title,
+          document_content: response.document_content,
+          document_format: response.document_format || 'markdown',
+          document_id: response.document_id,
+          document_type: response.document_type,
+        };
+
+        setMessages(prev => [...prev, documentMessage]);
       }
 
+      // Handle task creation (keep existing alert for now)
       if (response.task_created) {
         Alert.alert(
           '✅ Task Created',
@@ -244,59 +252,51 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ navigation, route }) => {
       let errorTitle = 'Message Failed';
       let errorMessage = 'Failed to send message. Please try again.';
       
-      if (error.message.includes('Server error')) {
-        errorTitle = 'Service Unavailable';
-        errorMessage = 'The AI assistant is temporarily unavailable. Please try again in a moment.';
-      } else if (error.message.includes('Authentication failed')) {
-        errorTitle = 'Session Expired';
-        errorMessage = 'Your session has expired. Please log in again.';
-      } else if (error.message.includes('connection')) {
+      if (error.message.includes('Network')) {
         errorTitle = 'Connection Error';
         errorMessage = 'Please check your internet connection and try again.';
-      } else if (error.message.includes('conversation')) {
-        errorTitle = 'Conversation Error';
-        errorMessage = 'There was an issue with the conversation. Try starting a new one.';
+      } else if (error.message.includes('Authentication')) {
+        errorTitle = 'Authentication Error';
+        errorMessage = 'Please log in again to continue.';
       }
       
-      Alert.alert(
-        errorTitle,
-        errorMessage,
-        [
-          {
-            text: 'Retry',
-            onPress: () => {
-              setInputText(userMessage);
-              setConnectionError(false);
-            },
-          },
-          {
-            text: 'New Chat',
-            onPress: () => {
-              setConversationId(undefined);
-              setMessages([]);
-              navigation.setOptions({ title: 'New Chat' });
-            },
-          },
-          {
-            text: 'Cancel',
-            style: 'cancel',
-          },
-        ]
-      );
+      Alert.alert(errorTitle, errorMessage, [
+        { text: 'Retry', onPress: () => sendMessage() },
+        { text: 'Cancel', style: 'cancel' }
+      ]);
     } finally {
       setIsSending(false);
     }
   };
 
-  const formatMessageTime = (timestamp: string) => {
+  const formatMessageTime = (timestamp: string): string => {
     const date = new Date(timestamp);
     const now = new Date();
-    const diffInHours = (now.getTime() - date.getTime()) / (1000 * 60 * 60);
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / (1000 * 60));
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffDays < 7) return `${diffDays}d ago`;
     
-    if (diffInHours < 24) {
-      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    } else {
-      return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+    return date.toLocaleDateString('en-US', { 
+      month: 'short', 
+      day: 'numeric',
+      year: date.getFullYear() !== now.getFullYear() ? 'numeric' : undefined
+    });
+  };
+
+  const handleDocumentPress = (document: MessageHistory) => {
+    if (document.document_content && document.document_title) {
+      navigation.navigate('DocumentView', {
+        title: document.document_title,
+        content: document.document_content,
+        format: document.document_format || 'markdown',
+        documentId: document.document_id,
+      });
     }
   };
 
@@ -304,6 +304,24 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ navigation, route }) => {
     const isUser = item.role === 'user';
     const isLastMessage = index === messages.length - 1;
     
+    // Handle document file messages with Telegram-style appearance
+    if (item.message_type === MessageType.DOCUMENT_FILE || item.message_type === 'document_file') {
+      return (
+        <View style={[styles.messageContainer, styles.aiMessageContainer]}>
+          <DocumentFileMessage
+            title={item.document_title || 'Untitled Document'}
+            format={item.document_format || 'markdown'}
+            timestamp={item.timestamp}
+            onPress={() => handleDocumentPress(item)}
+          />
+          <View style={styles.aiAvatar}>
+            <Ionicons name="sparkles" size={16} color="#667eea" />
+          </View>
+        </View>
+      );
+    }
+
+    // Regular text messages
     return (
       <View style={[
         styles.messageContainer,
@@ -398,118 +416,121 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ navigation, route }) => {
       <Text style={styles.errorMessage}>
         Unable to connect to Betty. Please check your internet connection.
       </Text>
-      <TouchableOpacity style={styles.retryButton} onPress={loadMessages}>
-        <Text style={styles.retryButtonText}>Retry Connection</Text>
+      <TouchableOpacity 
+        style={styles.retryButton}
+        onPress={() => {
+          setConnectionError(false);
+          if (conversationId) {
+            loadMessages();
+          }
+        }}
+      >
+        <Text style={styles.retryButtonText}>Retry</Text>
       </TouchableOpacity>
     </View>
   );
 
+  const canSend = inputText.trim().length > 0 && !isSending;
+  const characterCount = inputText.length;
+  const maxCharacters = 4000; // Match your backend limit
+
   return (
     <SafeAreaView style={styles.container}>
       <KeyboardAvoidingView 
-        style={styles.keyboardAvoid}
+        style={styles.keyboardContainer}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 25}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
       >
-        {/* Messages Area */}
-        <View style={styles.messagesContainer}>
-          {isLoading ? (
-            <View style={styles.loadingContainer}>
-              <ActivityIndicator size="large" color="#667eea" />
-              <Text style={styles.loadingText}>Loading conversation...</Text>
-            </View>
-          ) : connectionError && messages.length === 0 ? (
-            renderConnectionError()
-          ) : (
-            <FlatList
-              ref={flatListRef}
-              data={messages}
-              renderItem={renderMessage}
-              keyExtractor={(item) => item.id}
-              contentContainerStyle={messages.length === 0 ? styles.emptyContainer : styles.messagesContent}
-              showsVerticalScrollIndicator={false}
-              ListEmptyComponent={renderEmptyState}
-              ListFooterComponent={renderTypingIndicator}
-              onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
-              initialNumToRender={10}
-              maxToRenderPerBatch={10}
-              windowSize={21}
-              removeClippedSubviews={true}
-            />
-          )}
-        </View>
-
-        {/* Connection Status Bar */}
-        {connectionError && messages.length > 0 && (
-          <View style={styles.connectionBar}>
-            <Ionicons name="warning" size={16} color="#f59e0b" />
-            <Text style={styles.connectionBarText}>Connection issues detected</Text>
-            <TouchableOpacity onPress={() => setConnectionError(false)}>
-              <Ionicons name="close" size={16} color="#6b7280" />
-            </TouchableOpacity>
-          </View>
-        )}
-
-        {/* Input Area */}
-        <View style={styles.inputContainer}>
-          <View style={styles.inputWrapper}>
-            <TextInput
-              style={[
-                styles.textInput,
-                connectionError && styles.textInputError
-              ]}
-              value={inputText}
-              onChangeText={setInputText}
-              placeholder={
-                conversationId 
-                  ? "Ask Betty anything..." 
-                  : "Start a conversation with Betty..."
-              }
-              placeholderTextColor="#94a3b8"
-              multiline
-              maxLength={4000}
-              returnKeyType="send"
-              onSubmitEditing={Platform.OS === 'ios' ? sendMessage : undefined}
-              blurOnSubmit={false}
-              editable={!isSending}
-            />
-            
-            <TouchableOpacity
-              style={[
-                styles.sendButton,
-                (!inputText.trim() || isSending) && styles.sendButtonDisabled
-              ]}
-              onPress={sendMessage}
-              disabled={!inputText.trim() || isSending}
-            >
-              {isSending ? (
-                <View style={styles.sendingState}>
-                  <Ionicons name="hourglass" size={18} color="#94a3b8" />
-                </View>
-              ) : (
-                <Ionicons 
-                  name="send" 
-                  size={20} 
-                  color={inputText.trim() ? "#fff" : "#94a3b8"} 
-                />
-              )}
-            </TouchableOpacity>
-          </View>
-          
-          {/* Character Counter */}
-          <View style={styles.inputFooter}>
-            {isSending && (
-              <Text style={styles.sendingText}>
-                {aiTypingMessage}...
-              </Text>
+        <View style={styles.chatContainer}>
+          {/* Messages List */}
+          <View style={styles.messagesContainer}>
+            {isLoading ? (
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator size="large" color="#667eea" />
+                <Text style={styles.loadingText}>Loading conversation...</Text>
+              </View>
+            ) : connectionError ? (
+              renderConnectionError()
+            ) : (
+              <FlatList
+                ref={flatListRef}
+                data={messages}
+                renderItem={renderMessage}
+                keyExtractor={(item) => item.id}
+                contentContainerStyle={messages.length === 0 ? styles.emptyContainer : styles.messagesContent}
+                showsVerticalScrollIndicator={false}
+                ListEmptyComponent={renderEmptyState}
+                onContentSizeChange={() => {
+                  setTimeout(() => {
+                    flatListRef.current?.scrollToEnd({ animated: true });
+                  }, 100);
+                }}
+              />
             )}
-            <Text style={[
-              styles.characterCount,
-              inputText.length > 3800 && styles.characterCountWarning,
-              inputText.length >= 4000 && styles.characterCountError
+            
+            {/* Typing Indicator */}
+            {renderTypingIndicator()}
+          </View>
+
+          {/* Input Container */}
+          <View style={styles.inputContainer}>
+            <View style={[
+              styles.inputWrapper,
+              isSending && styles.inputWrapperSending,
+              characterCount > maxCharacters && styles.textInputError
             ]}>
-              {inputText.length}/4000
-            </Text>
+              <TextInput
+                style={styles.textInput}
+                value={inputText}
+                onChangeText={setInputText}
+                placeholder="Ask Betty anything..."
+                placeholderTextColor="#94a3b8"
+                multiline
+                maxLength={maxCharacters + 100} // Allow slight overflow for warning
+                editable={!isSending}
+                onSubmitEditing={sendMessage}
+                blurOnSubmit={false}
+              />
+              
+              <TouchableOpacity
+                style={[
+                  styles.sendButton,
+                  !canSend && styles.sendButtonDisabled,
+                  isSending && styles.sendingState
+                ]}
+                onPress={sendMessage}
+                disabled={!canSend}
+              >
+                {isSending ? (
+                  <ActivityIndicator size="small" color="white" />
+                ) : (
+                  <Ionicons 
+                    name="send" 
+                    size={20} 
+                    color={canSend ? "white" : "#94a3b8"} 
+                  />
+                )}
+              </TouchableOpacity>
+            </View>
+            
+            {/* Input Footer */}
+            <View style={styles.inputFooter}>
+              {isSending ? (
+                <Text style={styles.sendingText}>
+                  {aiTypingMessage}...
+                </Text>
+              ) : (
+                <View style={{ flex: 1 }} />
+              )}
+              
+              <Text style={[
+                styles.characterCount,
+                characterCount > maxCharacters * 0.9 && styles.characterCountWarning,
+                characterCount > maxCharacters && styles.characterCountError
+              ]}>
+                {characterCount}/{maxCharacters}
+              </Text>
+            </View>
           </View>
         </View>
       </KeyboardAvoidingView>
@@ -522,18 +543,20 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#f8fafc',
   },
-  keyboardAvoid: {
+  keyboardContainer: {
+    flex: 1,
+  },
+  chatContainer: {
     flex: 1,
   },
   headerRight: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginRight: 16,
+    paddingRight: 16,
   },
   conversationIndicator: {
-    flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    justifyContent: 'center',
   },
   activeIndicator: {
     width: 8,
@@ -547,23 +570,21 @@ const styles = StyleSheet.create({
   messagesContainer: {
     flex: 1,
   },
-  emptyContainer: {
-    flexGrow: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 24,
-  },
   messagesContent: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+    paddingBottom: 16,
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    paddingHorizontal: 20,
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    gap: 12,
   },
   loadingText: {
+    marginTop: 16,
     fontSize: 16,
     color: '#64748b',
   },
@@ -571,18 +592,20 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 24,
-    gap: 16,
+    paddingHorizontal: 32,
   },
   errorTitle: {
     fontSize: 20,
     fontWeight: '600',
     color: '#ef4444',
+    marginTop: 16,
+    marginBottom: 8,
   },
   errorMessage: {
     fontSize: 16,
     color: '#64748b',
     textAlign: 'center',
+    marginBottom: 24,
     lineHeight: 24,
   },
   retryButton: {
@@ -592,28 +615,13 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   retryButtonText: {
-    color: '#fff',
+    color: 'white',
     fontSize: 16,
     fontWeight: '600',
   },
-  connectionBar: {
-    backgroundColor: '#fef3c7',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    borderTopWidth: 1,
-    borderTopColor: '#f59e0b',
-  },
-  connectionBarText: {
-    flex: 1,
-    fontSize: 14,
-    color: '#92400e',
-  },
   messageContainer: {
+    paddingHorizontal: 16,
     marginBottom: 16,
-    paddingHorizontal: 8,
   },
   userMessageContainer: {
     alignItems: 'flex-end',
@@ -624,14 +632,14 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   lastMessage: {
-    marginBottom: 8,
+    marginBottom: 24,
   },
   messageBubble: {
-    maxWidth: '80%',
+    maxWidth: '85%',
     paddingHorizontal: 16,
     paddingVertical: 12,
-    borderRadius: 18,
-    elevation: 2,
+    borderRadius: 20,
+    elevation: 1,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
@@ -643,9 +651,9 @@ const styles = StyleSheet.create({
   },
   aiMessage: {
     backgroundColor: '#fff',
+    borderBottomLeftRadius: 6,
     borderWidth: 1,
     borderColor: '#e2e8f0',
-    borderBottomLeftRadius: 6,
     flex: 1,
   },
   messageText: {
@@ -743,7 +751,7 @@ const styles = StyleSheet.create({
   suggestionText: {
     fontSize: 14,
     color: '#475569',
-    flex: 1,
+    fontWeight: '500',
   },
   inputContainer: {
     backgroundColor: '#fff',
@@ -751,7 +759,7 @@ const styles = StyleSheet.create({
     borderTopColor: '#e2e8f0',
     paddingHorizontal: 16,
     paddingTop: 12,
-    paddingBottom: 8,
+    paddingBottom: Platform.OS === 'ios' ? 24 : 12,
   },
   inputWrapper: {
     flexDirection: 'row',
@@ -768,6 +776,10 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.05,
     shadowRadius: 1,
   },
+  inputWrapperSending: {
+    borderColor: '#667eea',
+    backgroundColor: '#f0f4ff',
+  },
   textInput: {
     flex: 1,
     fontSize: 16,
@@ -775,6 +787,7 @@ const styles = StyleSheet.create({
     maxHeight: 100,
     marginRight: 8,
     paddingVertical: 8,
+    textAlignVertical: 'top',
   },
   textInputError: {
     borderColor: '#ef4444',
@@ -821,8 +834,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0,
   },
   sendingState: {
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: '#f59e0b',
   },
 });
 

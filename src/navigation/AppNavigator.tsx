@@ -1,6 +1,5 @@
-// src/navigation/AppNavigator.tsx - FIXED VERSION
+// src/navigation/AppNavigator.tsx - Updated with DocumentView Screen
 import React from 'react';
-import { View, Text, TouchableOpacity } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -23,9 +22,10 @@ import SettingsScreen from '../screens/SettingsScreen';
 import NotificationSettingsScreen from '../screens/NotificationSettingsScreen';
 import EditProfileScreen from '../screens/EditProfileScreen';
 
-// Import new chat screens
+// Import chat and document screens
 import ConversationsScreen from '../screens/ConversationsScreen';
 import ChatScreen from '../screens/ChatScreen';
+import DocumentViewScreen from '../screens/DocumentViewScreen';
 
 // Type definitions for navigation
 export type RootStackParamList = {
@@ -40,12 +40,20 @@ export type RootStackParamList = {
   EditProfile: undefined;
   Auth: undefined;
   Splash: undefined;
+  Planner: undefined; // Add this
   // Chat screens
   Conversations: undefined;
   Chat: {
     conversationId?: string;
     title?: string;
     isNew?: boolean;
+  };
+  // Document screens
+  DocumentView: {
+    title: string;
+    content: string;
+    format: 'markdown' | 'text';
+    documentId?: string;
   };
 };
 
@@ -64,16 +72,15 @@ export type ProfileStackParamList = {
   EditProfile: undefined;
 };
 
-// Navigation prop types for all screens
+// Navigation prop types
 export type HomeScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Home'>;
 export type AssistantScreenNavigationProp = StackNavigationProp<MainTabParamList, 'Assistant'>;
 export type ConversationsScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Conversations'>;
 export type ChatScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Chat'>;
+export type DocumentViewScreenNavigationProp = StackNavigationProp<RootStackParamList, 'DocumentView'>;
 export type SplashScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Splash'>;
 export type LoginScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Login'>;
 export type RegisterScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Register'>;
-
-// Additional navigation types for any screens that might need them
 export type AuthScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Auth'>;
 export type ProfileScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Profile'>;
 export type SettingsScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Settings'>;
@@ -125,7 +132,7 @@ const AuthStackNavigator: React.FC = () => (
   </Stack.Navigator>
 );
 
-// Main App Navigator - FIXED VERSION
+// Main App Navigator - Updated with DocumentView
 const AppNavigator: React.FC = () => {
   const { user, loading } = useAuth();
 
@@ -137,14 +144,13 @@ const AppNavigator: React.FC = () => {
         }}
       >
         {loading ? (
-          // ✅ Only show AuthLoading when actually loading
           <Stack.Screen name="AuthLoading" component={AuthLoadingScreen} />
         ) : user ? (
           <>
             {/* Main app with tabs */}
             <Stack.Screen name="MainApp" component={MainTabNavigator} />
             
-            {/* Chat screens - these are modal-style screens */}
+            {/* Chat screens - modal-style */}
             <Stack.Screen 
               name="Conversations" 
               component={ConversationsScreen}
@@ -162,7 +168,18 @@ const AppNavigator: React.FC = () => {
               }}
             />
             
-            {/* Other modal screens */}
+            {/* Document View Screen - full screen modal */}
+            <Stack.Screen 
+              name="DocumentView" 
+              component={DocumentViewScreen}
+              options={{
+                headerShown: false,
+                presentation: 'modal',
+                gestureEnabled: true,
+              }}
+            />
+            
+            {/* Settings screens - modal-style */}
             <Stack.Screen 
               name="Settings" 
               component={SettingsScreen}
@@ -190,10 +207,9 @@ const AppNavigator: React.FC = () => {
           </>
         ) : (
           <>
-            {/* ✅ Auth flow: Show Splash first, then Auth stack */}
+            {/* Auth flow */}
             <Stack.Screen name="Splash" component={SplashScreen} />
             <Stack.Screen name="Auth" component={AuthStackNavigator} />
-            {/* ✅ Add AuthLoading here too so SplashScreen can navigate to it */}
             <Stack.Screen name="AuthLoading" component={AuthLoadingScreen} />
           </>
         )}
