@@ -40,15 +40,18 @@ export interface ProfileUpdateData {
 }
 
 export interface ProfileStats {
-  uid: string;
-  tasks_completed: number;
-  documents_created: number;
-  hours_saved: number;
-  ai_chats: number;
-  last_activity?: string;
-  streak_days: number;
-  total_login_days: number;
-}
+    // Original stats that the UI expects
+    tasks_completed: number;
+    documents_created: number;
+    hours_saved: number;
+    ai_chats: number;
+    
+    // New comprehensive stats from indexed system
+    total_messages?: number;
+    messages_today?: number;
+    last_chat_at?: string;
+    last_activity?: string;
+  }
 
 export interface NotificationSettings {
   uid: string;
@@ -234,12 +237,38 @@ class ProfileService {
 
   async getStats(): Promise<ProfileStats> {
     try {
-      const response = await this.api.get<ProfileStats>('/profile/stats');
-      return response.data;
+      // Use the new optimized chat stats endpoint instead of the old profile/stats
+      const response = await this.api.get<any>('/user/stats/chat');
+      const chatStats = response.data;
+      
+      // Transform the new chat stats format to match the old ProfileStats interface
+      const profileStats: ProfileStats = {
+        tasks_completed: 0, // This might need to come from a different endpoint
+        documents_created: 0, // We'll get this from user document indexes
+        hours_saved: Math.round((chatStats.total_messages || 0) * 0.1), // Estimated: 6 minutes per 10 messages
+        ai_chats: chatStats.total_conversations || 0,
+        
+        // Additional stats from the new endpoint
+        total_messages: chatStats.total_messages || 0,
+        messages_today: chatStats.messages_today || 0,
+        last_chat_at: chatStats.last_chat_at,
+      };
+  
+      // Get documents count from the new endpoint if needed
+      try {
+        const dashboardResponse = await this.api.get<any>('/user/dashboard');
+        profileStats.documents_created = dashboardResponse.data.stats?.total_documents || 0;
+        profileStats.tasks_completed = dashboardResponse.data.stats?.total_tasks || 0;
+      } catch (error) {
+        console.warn('Could not fetch dashboard stats, using chat stats only');
+      }
+      
+      return profileStats;
     } catch (error) {
       throw this.handleError(error);
     }
   }
+  
 
   // ============================================================================
   // NOTIFICATION SETTINGS
