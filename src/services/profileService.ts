@@ -1,12 +1,16 @@
-// src/services/profileService.ts
-import axios, { AxiosInstance } from 'axios';
+// src/services/profileService.ts - COMPLETE REWRITE WITH ALL TYPES FIXED
+import axios, { AxiosInstance, AxiosError } from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
+import { Alert } from 'react-native';
 
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:8000';
 
-// Types matching your FastAPI models
-export interface UserProfile {
+// ============================================================================
+// TYPE DEFINITIONS - MATCHING YOUR FASTAPI BACKEND
+// ============================================================================
+
+export interface UserResponse {
   uid: string;
   email: string;
   first_name: string;
@@ -15,7 +19,8 @@ export interface UserProfile {
   timezone?: string;
   phone?: string;
   bio?: string;
-  avatar_url?: string;
+  avatar_url?: string;        // Built dynamically by backend
+  avatar_filename?: string;   // Stored in database
   is_verified: boolean;
   google_connected: boolean;
   created_at: string;
@@ -74,6 +79,16 @@ export interface UserPreferences {
   updated_at?: string;
 }
 
+interface ApiError {
+  message: string;
+  statusCode: number;
+  details?: any;
+}
+
+// ============================================================================
+// PROFILE SERVICE CLASS
+// ============================================================================
+
 class ProfileService {
   private api: AxiosInstance;
   private baseURL: string;
@@ -83,62 +98,131 @@ class ProfileService {
     this.api = axios.create({
       baseURL: this.baseURL,
       timeout: 15000,
+      headers: {
+        'Content-Type': 'application/json',
+      },
     });
 
-    // Add auth interceptor
-    this.api.interceptors.request.use(async (config) => {
-      const token = await AsyncStorage.getItem('authToken');
-      if (token) {
-        config.headers.Authorization = `Bearer ${token}`;
+    // Add request interceptor for auth token
+    this.api.interceptors.request.use(
+      async (config) => {
+        try {
+          const token = await AsyncStorage.getItem('authToken');
+          if (token) {
+            config.headers.Authorization = `Bearer ${token}`;
+          }
+        } catch (error) {
+          console.error('Error getting auth token:', error);
+        }
+        return config;
+      },
+      (error) => Promise.reject(error)
+    );
+
+    // Add response interceptor for error handling
+    this.api.interceptors.response.use(
+      (response) => response,
+      (error) => {
+        console.error('API Error:', error.response?.data || error.message);
+        return Promise.reject(this.handleError(error));
       }
-      return config;
-    });
+    );
+  }
+
+  // ============================================================================
+  // ERROR HANDLING
+  // ============================================================================
+
+  private handleError(error: any): ApiError {
+    if (axios.isAxiosError(error)) {
+      const axiosError = error as AxiosError;
+      
+      if (axiosError.response) {
+        // Server responded with error status
+        const statusCode = axiosError.response.status;
+        const data = axiosError.response.data as any;
+        
+        return {
+          message: data?.detail || data?.message || 'Server error occurred',
+          statusCode,
+          details: data,
+        };
+      } else if (axiosError.request) {
+        // Request made but no response
+        return {
+          message: 'Network error - please check your internet connection',
+          statusCode: 0,
+        };
+      }
+    }
+    
+    // Generic error
+    return {
+      message: error.message || 'An unexpected error occurred',
+      statusCode: 500,
+    };
   }
 
   // ============================================================================
   // PROFILE MANAGEMENT
   // ============================================================================
 
-  async getProfile(): Promise<UserProfile> {
+  async getProfile(): Promise<UserResponse> {
     try {
-      const response = await this.api.get<UserProfile>('/profile/me');
+      const response = await this.api.get<UserResponse>('/profile/me');
       return response.data;
     } catch (error) {
       throw this.handleError(error);
     }
   }
 
-  async updateProfile(updates: ProfileUpdateData): Promise<UserProfile> {
+  async updateProfile(updates: ProfileUpdateData): Promise<UserResponse> {
     try {
-      const response = await this.api.put<UserProfile>('/profile/me', updates);
+      const response = await this.api.put<UserResponse>('/profile/me', updates);
       return response.data;
     } catch (error) {
       throw this.handleError(error);
     }
   }
+
+  // ============================================================================
+  // AVATAR MANAGEMENT
+  // ============================================================================
 
   async uploadAvatar(imageUri: string): Promise<string> {
     try {
-      // Create FormData for file upload
       const formData = new FormData();
       
-      // Convert image URI to blob
-      const response = await fetch(imageUri);
-      const blob = await response.blob();
+      // Create file object for React Native
+      const fileExtension = imageUri.split('.').pop()?.toLowerCase() || 'jpg';
+      const fileName = `avatar_${Date.now()}.${fileExtension}`;
       
-      formData.append('file', blob as any, 'avatar.jpg');
+      formData.append('file', {
+        uri: imageUri,
+        type: `image/${fileExtension}`,
+        name: fileName,
+      } as any);
 
-      const uploadResponse = await this.api.post<{ avatar_url: string }>(
+      const response = await this.api.post<{ avatar_url: string }>(
         '/profile/upload-avatar',
         formData,
         {
           headers: {
             'Content-Type': 'multipart/form-data',
           },
+          timeout: 30000, // Longer timeout for file uploads
         }
       );
 
-      return uploadResponse.data.avatar_url;
+      return response.data.avatar_url;
+    } catch (error) {
+      throw this.handleError(error);
+    }
+  }
+
+  async removeAvatar(): Promise<void> {
+    try {
+      await this.api.delete('/profile/avatar');
     } catch (error) {
       throw this.handleError(error);
     }
@@ -208,6 +292,8 @@ class ProfileService {
   async deleteAccount(): Promise<void> {
     try {
       await this.api.delete('/profile/account');
+      // Clear local storage after successful deletion
+      await AsyncStorage.multiRemove(['authToken', 'userProfile']);
     } catch (error) {
       throw this.handleError(error);
     }
@@ -217,80 +303,151 @@ class ProfileService {
   // IMAGE PICKER UTILITIES
   // ============================================================================
 
+  async requestCameraPermission(): Promise<boolean> {
+    try {
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      return status === 'granted';
+    } catch (error) {
+      console.error('Error requesting camera permission:', error);
+      return false;
+    }
+  }
+
+  async requestMediaLibraryPermission(): Promise<boolean> {
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      return status === 'granted';
+    } catch (error) {
+      console.error('Error requesting media library permission:', error);
+      return false;
+    }
+  }
+
   async pickImage(): Promise<string | null> {
     try {
-      // Request permissions
-      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (status !== 'granted') {
-        throw new Error('Permission to access media library is required');
+      const hasPermission = await this.requestMediaLibraryPermission();
+      if (!hasPermission) {
+        Alert.alert(
+          'Permission Required',
+          'Please grant access to your photo library to select an image.'
+        );
+        return null;
       }
 
-      // Launch image picker
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
         aspect: [1, 1],
-        quality: 0.7,
+        quality: 0.8,
         base64: false,
       });
 
-      if (!result.canceled && result.assets[0]) {
+      if (!result.canceled && result.assets && result.assets[0]) {
         return result.assets[0].uri;
       }
 
       return null;
     } catch (error) {
-      throw this.handleError(error);
+      console.error('Error picking image:', error);
+      throw new Error('Failed to pick image from library');
     }
   }
 
   async takePhoto(): Promise<string | null> {
     try {
-      // Request camera permissions
-      const { status } = await ImagePicker.requestCameraPermissionsAsync();
-      if (status !== 'granted') {
-        throw new Error('Permission to access camera is required');
+      const hasPermission = await this.requestCameraPermission();
+      if (!hasPermission) {
+        Alert.alert(
+          'Permission Required',
+          'Please grant camera access to take a photo.'
+        );
+        return null;
       }
 
-      // Launch camera
       const result = await ImagePicker.launchCameraAsync({
         allowsEditing: true,
         aspect: [1, 1],
-        quality: 0.7,
+        quality: 0.8,
         base64: false,
       });
 
-      if (!result.canceled && result.assets[0]) {
+      if (!result.canceled && result.assets && result.assets[0]) {
         return result.assets[0].uri;
       }
 
       return null;
     } catch (error) {
-      throw this.handleError(error);
+      console.error('Error taking photo:', error);
+      throw new Error('Failed to take photo');
     }
   }
 
   // ============================================================================
-  // ERROR HANDLING
+  // UTILITY METHODS
   // ============================================================================
 
-  private handleError(error: any): Error {
-    if (axios.isAxiosError(error)) {
-      const message = error.response?.data?.detail || error.message || 'Network error occurred';
-      const statusCode = error.response?.status;
-      
-      console.error('Profile Service Error:', {
-        message,
-        statusCode,
-        url: error.config?.url,
-      });
-
-      return new Error(message);
+  async clearCache(): Promise<void> {
+    try {
+      await AsyncStorage.removeItem('userProfile');
+      await AsyncStorage.removeItem('profileStats');
+      await AsyncStorage.removeItem('notificationSettings');
+      await AsyncStorage.removeItem('userPreferences');
+    } catch (error) {
+      console.error('Error clearing cache:', error);
     }
-    
-    console.error('Profile Service Error:', error);
-    return new Error(error.message || 'An unexpected error occurred');
+  }
+
+  async cacheProfile(profile: UserResponse): Promise<void> {
+    try {
+      await AsyncStorage.setItem('userProfile', JSON.stringify(profile));
+    } catch (error) {
+      console.error('Error caching profile:', error);
+    }
+  }
+
+  async getCachedProfile(): Promise<UserResponse | null> {
+    try {
+      const cached = await AsyncStorage.getItem('userProfile');
+      return cached ? JSON.parse(cached) : null;
+    } catch (error) {
+      console.error('Error getting cached profile:', error);
+      return null;
+    }
+  }
+
+  // ============================================================================
+  // VALIDATION HELPERS
+  // ============================================================================
+
+  validateProfileData(data: ProfileUpdateData): { isValid: boolean; errors: string[] } {
+    const errors: string[] = [];
+
+    if (data.first_name && data.first_name.trim().length < 1) {
+      errors.push('First name cannot be empty');
+    }
+
+    if (data.last_name && data.last_name.trim().length < 1) {
+      errors.push('Last name cannot be empty');
+    }
+
+    if (data.phone && data.phone.trim().length > 0) {
+      const phoneRegex = /^[\+]?[1-9][\d]{0,15}$/;
+      if (!phoneRegex.test(data.phone.replace(/[\s\-\(\)]/g, ''))) {
+        errors.push('Please enter a valid phone number');
+      }
+    }
+
+    if (data.bio && data.bio.length > 500) {
+      errors.push('Bio must be less than 500 characters');
+    }
+
+    return {
+      isValid: errors.length === 0,
+      errors,
+    };
   }
 }
 
+// Export singleton instance
 export const profileService = new ProfileService();
+export default profileService;

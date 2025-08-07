@@ -1,4 +1,4 @@
-// src/screens/EditProfileScreen.tsx
+// src/screens/EditProfileScreen.tsx - COMPLETE WORKING VERSION
 import React, { useState, useEffect } from 'react';
 import {
   View,
@@ -13,6 +13,8 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
+  StatusBar,
+  Dimensions,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -26,6 +28,12 @@ import {
 } from '../services/profileService';
 import { ProfileStackParamList } from '../navigation/AppNavigator';
 
+const { width, height } = Dimensions.get('window');
+
+// ============================================================================
+// TYPE DEFINITIONS
+// ============================================================================
+
 type EditProfileScreenNavigationProp = NavigationProp<ProfileStackParamList>;
 
 interface FormData extends ProfileUpdateData {
@@ -37,10 +45,15 @@ interface FormData extends ProfileUpdateData {
   location: string;
 }
 
+// ============================================================================
+// MAIN COMPONENT
+// ============================================================================
+
 const EditProfileScreen: React.FC = () => {
   const navigation = useNavigation<EditProfileScreenNavigationProp>();
   const { user, refreshUser } = useAuth();
   
+  // State management
   const [formData, setFormData] = useState<FormData>({
     first_name: '',
     last_name: '',
@@ -55,6 +68,10 @@ const EditProfileScreen: React.FC = () => {
   const [avatarLoading, setAvatarLoading] = useState(false);
   const [profile, setProfile] = useState<UserResponse | null>(null);
   const [hasChanges, setHasChanges] = useState(false);
+
+  // ============================================================================
+  // EFFECTS
+  // ============================================================================
 
   useEffect(() => {
     loadProfile();
@@ -74,6 +91,10 @@ const EditProfileScreen: React.FC = () => {
     }
   }, [formData, profile]);
 
+  // ============================================================================
+  // DATA LOADING
+  // ============================================================================
+
   const loadProfile = async () => {
     try {
       setLoading(true);
@@ -89,22 +110,27 @@ const EditProfileScreen: React.FC = () => {
         bio: profileData.bio || '',
         location: profileData.location || '',
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error loading profile:', error);
-      Alert.alert('Error', 'Failed to load profile data');
+      Alert.alert('Error', error.message || 'Failed to load profile data');
+      navigation.goBack();
     } finally {
       setLoading(false);
     }
   };
 
+  // ============================================================================
+  // EVENT HANDLERS
+  // ============================================================================
+
   const handleInputChange = (field: keyof FormData, value: string) => {
-    setFormData(prev => ({
+    setFormData((prev: FormData) => ({
       ...prev,
       [field]: value
     }));
   };
 
-  const handleAvatarChange = async () => {
+  const handleAvatarChange = () => {
     Alert.alert(
       'Change Profile Picture',
       'Choose how you want to update your profile picture',
@@ -112,7 +138,11 @@ const EditProfileScreen: React.FC = () => {
         { text: 'Cancel', style: 'cancel' },
         { text: 'Take Photo', onPress: () => handleImageSelection('camera') },
         { text: 'Choose from Gallery', onPress: () => handleImageSelection('gallery') },
-        { text: 'Remove Photo', style: 'destructive', onPress: handleRemoveAvatar },
+        ...(profile?.avatar_url ? [{ 
+          text: 'Remove Photo', 
+          style: 'destructive' as const, 
+          onPress: handleRemoveAvatar 
+        }] : []),
       ]
     );
   };
@@ -131,12 +161,15 @@ const EditProfileScreen: React.FC = () => {
 
       if (imageUri) {
         const avatarUrl = await profileService.uploadAvatar(imageUri);
-        setProfile(prev => prev ? { ...prev, avatar_url: avatarUrl } : null);
+        setProfile((prev: UserResponse | null) => prev ? { 
+          ...prev, 
+          avatar_url: avatarUrl 
+        } : null);
         Alert.alert('Success', 'Profile picture updated successfully!');
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error updating avatar:', error);
-      Alert.alert('Error', 'Failed to update profile picture');
+      Alert.alert('Error', error.message || 'Failed to update profile picture');
     } finally {
       setAvatarLoading(false);
     }
@@ -145,18 +178,15 @@ const EditProfileScreen: React.FC = () => {
   const handleRemoveAvatar = async () => {
     try {
       setAvatarLoading(true);
-      
-      // Update profile to remove avatar
-      const updateData: ProfileUpdateData = {
-        // We'll need to add a way to clear avatar in the backend
-      };
-      
-      await profileService.updateProfile(updateData);
-      setProfile(prev => prev ? { ...prev, avatar_url: undefined } : null);
+      await profileService.removeAvatar();
+      setProfile((prev: UserResponse | null) => prev ? { 
+        ...prev, 
+        avatar_url: undefined 
+      } : null);
       Alert.alert('Success', 'Profile picture removed successfully!');
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error removing avatar:', error);
-      Alert.alert('Error', 'Failed to remove profile picture');
+      Alert.alert('Error', error.message || 'Failed to remove profile picture');
     } finally {
       setAvatarLoading(false);
     }
@@ -178,6 +208,14 @@ const EditProfileScreen: React.FC = () => {
       return false;
     }
     
+    if (formData.phone && formData.phone.trim().length > 0) {
+      const phoneRegex = /^[\+]?[1-9][\d]{0,15}$/;
+      if (!phoneRegex.test(formData.phone.replace(/[\s\-\(\)]/g, ''))) {
+        Alert.alert('Validation Error', 'Please enter a valid phone number');
+        return false;
+      }
+    }
+    
     return true;
   };
 
@@ -187,6 +225,7 @@ const EditProfileScreen: React.FC = () => {
     try {
       setSaving(true);
       
+      // Prepare update data (exclude email and empty fields)
       const updateData: ProfileUpdateData = {
         first_name: formData.first_name.trim(),
         last_name: formData.last_name.trim(),
@@ -198,18 +237,20 @@ const EditProfileScreen: React.FC = () => {
       const updatedProfile = await profileService.updateProfile(updateData);
       setProfile(updatedProfile);
       
-      // Refresh user context
+      // Refresh user context if available
       if (refreshUser) {
         await refreshUser();
       }
       
-      Alert.alert('Success', 'Profile updated successfully!', [
-        { text: 'OK', onPress: () => navigation.goBack() }
-      ]);
+      Alert.alert(
+        'Success', 
+        'Profile updated successfully!', 
+        [{ text: 'OK', onPress: () => navigation.goBack() }]
+      );
       
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error updating profile:', error);
-      Alert.alert('Error', 'Failed to update profile. Please try again.');
+      Alert.alert('Error', error.message || 'Failed to update profile. Please try again.');
     } finally {
       setSaving(false);
     }
@@ -222,7 +263,11 @@ const EditProfileScreen: React.FC = () => {
         'You have unsaved changes. Are you sure you want to leave?',
         [
           { text: 'Stay', style: 'cancel' },
-          { text: 'Leave', style: 'destructive', onPress: () => navigation.goBack() },
+          { 
+            text: 'Leave', 
+            style: 'destructive', 
+            onPress: () => navigation.goBack() 
+          },
         ]
       );
     } else {
@@ -230,9 +275,14 @@ const EditProfileScreen: React.FC = () => {
     }
   };
 
+  // ============================================================================
+  // RENDER LOADING STATE
+  // ============================================================================
+
   if (loading) {
     return (
       <SafeAreaView style={styles.container}>
+        <StatusBar barStyle="dark-content" backgroundColor="#f8f9ff" />
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#667eea" />
           <Text style={styles.loadingText}>Loading profile...</Text>
@@ -241,8 +291,14 @@ const EditProfileScreen: React.FC = () => {
     );
   }
 
+  // ============================================================================
+  // MAIN RENDER
+  // ============================================================================
+
   return (
     <SafeAreaView style={styles.container}>
+      <StatusBar barStyle="dark-content" backgroundColor="#f8f9ff" />
+      
       <KeyboardAvoidingView 
         style={styles.container} 
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -255,20 +311,31 @@ const EditProfileScreen: React.FC = () => {
           <Text style={styles.headerTitle}>Edit Profile</Text>
           <TouchableOpacity 
             onPress={handleSave} 
-            style={[styles.headerButton, styles.saveButton, !hasChanges && styles.saveButtonDisabled]}
+            style={[
+              styles.headerButton, 
+              styles.saveButton, 
+              (!hasChanges || saving) && styles.saveButtonDisabled
+            ]}
             disabled={!hasChanges || saving}
           >
             {saving ? (
               <ActivityIndicator size="small" color="white" />
             ) : (
-              <Text style={[styles.saveButtonText, !hasChanges && styles.saveButtonTextDisabled]}>
+              <Text style={[
+                styles.saveButtonText, 
+                (!hasChanges || saving) && styles.saveButtonTextDisabled
+              ]}>
                 Save
               </Text>
             )}
           </TouchableOpacity>
         </View>
 
-        <ScrollView showsVerticalScrollIndicator={false} style={styles.content}>
+        <ScrollView 
+          showsVerticalScrollIndicator={false} 
+          style={styles.content}
+          keyboardShouldPersistTaps="handled"
+        >
           {/* Avatar Section */}
           <Animatable.View animation="fadeInDown" delay={200} style={styles.avatarSection}>
             <TouchableOpacity 
@@ -285,25 +352,22 @@ const EditProfileScreen: React.FC = () => {
               ) : (
                 <View style={styles.avatar}>
                   <Text style={styles.avatarText}>
-                    {formData.first_name?.charAt(0)?.toUpperCase() || 'U'}
-                    {formData.last_name?.charAt(0)?.toUpperCase() || ''}
+                    {formData.first_name.charAt(0)}{formData.last_name.charAt(0)}
                   </Text>
                 </View>
               )}
-              
               <LinearGradient
-                colors={['transparent', 'rgba(0,0,0,0.7)']}
+                colors={['transparent', 'rgba(102, 126, 234, 0.8)']}
                 style={styles.avatarOverlay}
               >
-                <Ionicons name="camera" size={20} color="white" />
+                <Ionicons name="camera" size={16} color="white" />
               </LinearGradient>
             </TouchableOpacity>
-            
             <Text style={styles.avatarHint}>Tap to change profile picture</Text>
           </Animatable.View>
 
-          {/* Form Section */}
-          <Animatable.View animation="fadeInUp" delay={400} style={styles.formSection}>
+          {/* Form Sections */}
+          <View style={styles.formSection}>
             {/* Basic Info */}
             <View style={styles.inputGroup}>
               <Text style={styles.sectionTitle}>Basic Information</Text>
@@ -375,9 +439,9 @@ const EditProfileScreen: React.FC = () => {
               </View>
             </View>
 
-            {/* About */}
+            {/* About Section */}
             <View style={styles.inputGroup}>
-              <Text style={styles.sectionTitle}>About You</Text>
+              <Text style={styles.sectionTitle}>About</Text>
               
               <View style={styles.inputContainer}>
                 <Text style={styles.label}>Bio</Text>
@@ -385,24 +449,28 @@ const EditProfileScreen: React.FC = () => {
                   style={[styles.input, styles.textArea]}
                   value={formData.bio}
                   onChangeText={(text) => handleInputChange('bio', text)}
-                  placeholder="Tell us about yourself..."
+                  placeholder="Tell us about yourself"
                   placeholderTextColor="#999"
-                  multiline
+                  multiline={true}
                   numberOfLines={4}
-                  textAlignVertical="top"
                   maxLength={500}
+                  textAlignVertical="top"
                 />
                 <Text style={styles.characterCount}>
                   {formData.bio.length}/500 characters
                 </Text>
               </View>
             </View>
-          </Animatable.View>
+          </View>
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
 };
+
+// ============================================================================
+// STYLES
+// ============================================================================
 
 const styles = StyleSheet.create({
   container: {
@@ -415,10 +483,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   loadingText: {
-    marginTop: 10,
+    marginTop: 16,
     fontSize: 16,
-    color: '#667eea',
+    color: '#666',
   },
+
+  // Header Styles
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -426,25 +496,27 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 15,
     backgroundColor: 'white',
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#e1e5e9',
   },
   headerButton: {
-    padding: 8,
-    minWidth: 60,
+    width: 40,
+    height: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   headerTitle: {
     fontSize: 18,
     fontWeight: 'bold',
     color: '#333',
+    flex: 1,
+    textAlign: 'center',
   },
   saveButton: {
     backgroundColor: '#667eea',
+    borderRadius: 20,
     paddingHorizontal: 16,
     paddingVertical: 8,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
     minWidth: 60,
   },
   saveButtonDisabled: {
@@ -458,9 +530,13 @@ const styles = StyleSheet.create({
   saveButtonTextDisabled: {
     color: '#999',
   },
+
+  // Content Styles
   content: {
     flex: 1,
   },
+  
+  // Avatar Section
   avatarSection: {
     alignItems: 'center',
     paddingVertical: 30,
@@ -505,6 +581,8 @@ const styles = StyleSheet.create({
     color: '#666',
     marginTop: 5,
   },
+
+  // Form Styles
   formSection: {
     paddingBottom: 30,
   },
