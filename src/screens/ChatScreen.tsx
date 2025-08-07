@@ -210,7 +210,7 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ navigation, route }) => {
           id: (Date.now() + 2).toString(),
           user_id: 'current_user',
           role: 'assistant',
-          content: `📄 ${response.document_title || 'Document Created'}`,
+          content: ` ${response.document_title || 'Document Created'}`,
           message_type: MessageType.DOCUMENT_FILE,
           timestamp: new Date().toISOString(),
           conversation_id: currentConversationId,

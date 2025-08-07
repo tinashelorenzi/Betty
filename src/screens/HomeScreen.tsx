@@ -104,19 +104,7 @@ const HomeScreen: React.FC<HomeScreenProps> = () => {
   };
 
   const startNewChat = async () => {
-    try {
-      // Create a new conversation and navigate to it
-      const conversationId = await chatService.createNewConversation();
-      navigation.navigate('Chat', { 
-        conversationId, 
-        isNew: true,
-        title: 'New Chat'
-      });
-    } catch (error) {
-      console.error('Error starting new chat:', error);
-      // Fallback - navigate to chat without conversation ID
-      navigation.navigate('Chat', { isNew: true });
-    }
+    navigation.navigate('Chat', { isNew: true, title: 'New Chat' });
   };
 
   const viewConversations = () => {

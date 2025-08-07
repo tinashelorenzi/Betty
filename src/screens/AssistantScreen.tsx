@@ -83,17 +83,7 @@ const AssistantScreen: React.FC<AssistantScreenProps> = () => {
   };
 
   const startNewChat = async () => {
-    try {
-      const conversationId = await chatService.createNewConversation();
-      navigation.navigate('Chat', { 
-        conversationId, 
-        isNew: true,
-        title: 'New Chat'
-      });
-    } catch (error) {
-      console.error('Error starting new chat:', error);
-      navigation.navigate('Chat', { isNew: true });
-    }
+    navigation.navigate('Chat', { isNew: true, title: 'New Chat' });
   };
 
   const viewAllConversations = () => {
