@@ -1,4 +1,4 @@
-// src/services/chatService.ts - Fixed version with proper imports
+// src/services/chatService.ts - Fixed version with proper conversation_id handling
 
 import axios, { AxiosInstance, AxiosError } from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -64,20 +64,24 @@ class ChatService {
     );
   }
 
-  // Send message with proper conversation handling
+  // Send message with proper conversation handling - FIXED VERSION
   async sendMessage(message: ChatMessage, conversationId?: string): Promise<ChatResponse> {
     try {
-      const url = conversationId 
-        ? `/chat/message?conversation_id=${conversationId}`
-        : '/chat/message';
+      // ✅ FIXED: Always include conversation_id in the message body if provided
+      const messageWithConversation: ChatMessage = {
+        ...message,
+        conversation_id: conversationId || message.conversation_id
+      };
       
-      console.log(`🔄 Sending message to: ${url}`);
+      console.log(`🔄 Sending message to /chat/message`);
       console.log(`📝 Message content: ${message.content.substring(0, 100)}...`);
+      console.log(`💬 Conversation ID: ${messageWithConversation.conversation_id || 'new conversation'}`);
       
-      const response = await this.api.post<ChatResponse>(url, message);
+      const response = await this.api.post<ChatResponse>('/chat/message', messageWithConversation);
       
       console.log('✅ Message sent successfully');
       console.log(`📄 Document created: ${response.data.document_created}`);
+      console.log(`💬 Response conversation ID: ${response.data.conversation_id}`);
       
       return response.data;
     } catch (error) {
@@ -86,7 +90,7 @@ class ChatService {
     }
   }
 
-  // Start new conversation 
+  // Start new conversation - FIXED VERSION
   async startNewConversation(initialMessage: string): Promise<{ conversationId: string; response: ChatResponse }> {
     try {
       console.log('🔄 Starting new conversation...');
@@ -94,6 +98,7 @@ class ChatService {
       const message: ChatMessage = {
         content: initialMessage,
         message_type: MessageType.TEXT,
+        // ✅ FIXED: Don't include conversation_id for new conversations
       };
       
       // Send to new conversation endpoint
@@ -115,6 +120,28 @@ class ChatService {
       
     } catch (error) {
       console.error('❌ Error starting new conversation:', error);
+      throw this.handleError(error);
+    }
+  }
+
+  // Continue existing conversation - NEW METHOD
+  async continueConversation(
+    message: string, 
+    conversationId: string
+  ): Promise<ChatResponse> {
+    try {
+      console.log('🔄 Continuing conversation...');
+      
+      const chatMessage: ChatMessage = {
+        content: message,
+        message_type: MessageType.TEXT,
+        conversation_id: conversationId, // ✅ Include conversation_id
+      };
+      
+      return await this.sendMessage(chatMessage, conversationId);
+      
+    } catch (error) {
+      console.error('❌ Error continuing conversation:', error);
       throw this.handleError(error);
     }
   }
