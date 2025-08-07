@@ -29,9 +29,7 @@ import ChatScreen from '../screens/ChatScreen';
 
 // Type definitions for navigation
 export type RootStackParamList = {
-  Splash: undefined;
   AuthLoading: undefined;
-  Auth: undefined;
   Login: undefined;
   Register: undefined;
   MainApp: undefined;
@@ -40,6 +38,8 @@ export type RootStackParamList = {
   Settings: undefined;
   NotificationSettings: undefined;
   EditProfile: undefined;
+  Auth: undefined;
+  Splash: undefined;
   // Chat screens
   Conversations: undefined;
   Chat: {
@@ -73,67 +73,31 @@ export type SplashScreenNavigationProp = StackNavigationProp<RootStackParamList,
 export type LoginScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Login'>;
 export type RegisterScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Register'>;
 
-// Create navigators
+// Additional navigation types for any screens that might need them
+export type AuthScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Auth'>;
+export type ProfileScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Profile'>;
+export type SettingsScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Settings'>;
+
 const Stack = createStackNavigator<RootStackParamList>();
 const Tab = createBottomTabNavigator<MainTabParamList>();
 const ProfileStack = createStackNavigator<ProfileStackParamList>();
 
-// Auth Stack Component
-const AuthStack = () => (
-  <Stack.Navigator 
-    initialRouteName="Login"
-    screenOptions={{ 
-      headerShown: false 
+// Profile Stack Navigator
+const ProfileStackNavigator: React.FC = () => (
+  <ProfileStack.Navigator
+    screenOptions={{
+      headerShown: false,
     }}
   >
-    <Stack.Screen name="Login" component={LoginScreen} />
-    <Stack.Screen name="Register" component={RegisterScreen} />
-  </Stack.Navigator>
-);
-
-// Profile Stack Component
-const ProfileStackNavigator = () => (
-  <ProfileStack.Navigator>
-    <ProfileStack.Screen
-      name="ProfileMain"
-      component={ProfileScreen}
-      options={{ headerShown: false }}
-    />
-    <ProfileStack.Screen
-      name="Settings"
-      component={SettingsScreen}
-      options={{ 
-        title: 'Settings',
-        headerStyle: { backgroundColor: '#667eea' },
-        headerTintColor: '#fff',
-        headerTitleStyle: { fontWeight: 'bold' }
-      }}
-    />
-    <ProfileStack.Screen
-      name="NotificationSettings"
-      component={NotificationSettingsScreen}
-      options={{ 
-        title: 'Notifications',
-        headerStyle: { backgroundColor: '#667eea' },
-        headerTintColor: '#fff',
-        headerTitleStyle: { fontWeight: 'bold' }
-      }}
-    />
-    <ProfileStack.Screen
-      name="EditProfile"
-      component={EditProfileScreen}
-      options={{ 
-        title: 'Edit Profile',
-        headerStyle: { backgroundColor: '#667eea' },
-        headerTintColor: '#fff',
-        headerTitleStyle: { fontWeight: 'bold' }
-      }}
-    />
+    <ProfileStack.Screen name="ProfileMain" component={ProfileScreen} />
+    <ProfileStack.Screen name="Settings" component={SettingsScreen} />
+    <ProfileStack.Screen name="NotificationSettings" component={NotificationSettingsScreen} />
+    <ProfileStack.Screen name="EditProfile" component={EditProfileScreen} />
   </ProfileStack.Navigator>
 );
 
 // Main Tab Navigator
-const MainTabNavigator = () => (
+const MainTabNavigator: React.FC = () => (
   <Tab.Navigator
     tabBar={(props) => <CustomTabBar {...props} />}
     screenOptions={{
@@ -148,56 +112,90 @@ const MainTabNavigator = () => (
   </Tab.Navigator>
 );
 
-// Main App Navigator (includes chat screens)
+// Auth Stack Navigator
+const AuthStackNavigator: React.FC = () => (
+  <Stack.Navigator
+    screenOptions={{
+      headerShown: false,
+      gestureEnabled: false,
+    }}
+  >
+    <Stack.Screen name="Login" component={LoginScreen} />
+    <Stack.Screen name="Register" component={RegisterScreen} />
+  </Stack.Navigator>
+);
+
+// Main App Navigator - FIXED VERSION
 const AppNavigator: React.FC = () => {
-  const { isAuthenticated, loading } = useAuth();
+  const { user, loading } = useAuth();
 
   return (
     <NavigationContainer>
-      <Stack.Navigator 
-        screenOptions={{ 
-          headerShown: false 
+      <Stack.Navigator
+        screenOptions={{
+          headerShown: false,
         }}
-        initialRouteName="Splash"
       >
-        {/* Always show splash first */}
-        <Stack.Screen name="Splash" component={SplashScreen} />
-        
-        {/* Auth loading screen */}
-        <Stack.Screen name="AuthLoading" component={AuthLoadingScreen} />
-        
         {loading ? (
-          // Show loading screen while checking auth
+          // ✅ Only show AuthLoading when actually loading
           <Stack.Screen name="AuthLoading" component={AuthLoadingScreen} />
-        ) : isAuthenticated ? (
-          // Authenticated user screens
+        ) : user ? (
           <>
+            {/* Main app with tabs */}
             <Stack.Screen name="MainApp" component={MainTabNavigator} />
+            
+            {/* Chat screens - these are modal-style screens */}
             <Stack.Screen 
               name="Conversations" 
               component={ConversationsScreen}
-              options={{ 
-                title: 'Conversations',
-                headerShown: true,
-                headerStyle: { backgroundColor: '#667eea' },
-                headerTintColor: '#fff',
-                headerTitleStyle: { fontWeight: 'bold' }
+              options={{
+                headerShown: false,
+                presentation: 'modal',
               }}
             />
             <Stack.Screen 
               name="Chat" 
               component={ChatScreen}
-              options={{ 
-                headerShown: true,
-                headerStyle: { backgroundColor: '#667eea' },
-                headerTintColor: '#fff',
-                headerTitleStyle: { fontWeight: 'bold' }
+              options={{
+                headerShown: false,
+                presentation: 'modal',
+              }}
+            />
+            
+            {/* Other modal screens */}
+            <Stack.Screen 
+              name="Settings" 
+              component={SettingsScreen}
+              options={{
+                headerShown: false,
+                presentation: 'modal',
+              }}
+            />
+            <Stack.Screen 
+              name="NotificationSettings" 
+              component={NotificationSettingsScreen}
+              options={{
+                headerShown: false,
+                presentation: 'modal',
+              }}
+            />
+            <Stack.Screen 
+              name="EditProfile" 
+              component={EditProfileScreen}
+              options={{
+                headerShown: false,
+                presentation: 'modal',
               }}
             />
           </>
         ) : (
-          // Unauthenticated user screens
-          <Stack.Screen name="Auth" component={AuthStack} />
+          <>
+            {/* ✅ Auth flow: Show Splash first, then Auth stack */}
+            <Stack.Screen name="Splash" component={SplashScreen} />
+            <Stack.Screen name="Auth" component={AuthStackNavigator} />
+            {/* ✅ Add AuthLoading here too so SplashScreen can navigate to it */}
+            <Stack.Screen name="AuthLoading" component={AuthLoadingScreen} />
+          </>
         )}
       </Stack.Navigator>
     </NavigationContainer>
