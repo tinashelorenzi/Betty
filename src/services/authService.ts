@@ -1,4 +1,4 @@
-// src/services/authService.ts
+// src/services/authService.ts - BACKWARD COMPATIBLE VERSION WITH JWT FIX
 import axios, { AxiosInstance, AxiosError } from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -13,10 +13,16 @@ interface UserResponse {
   last_name: string;
   location?: string;
   timezone?: string;
+  phone?: string;
+  bio?: string;
+  avatar_url?: string;
+  avatar_filename?: string;
   is_verified: boolean;
   google_connected: boolean;
   created_at: string;
   updated_at: string;
+  last_login?: string;
+  preferences?: Record<string, any>;
 }
 
 interface AuthTokenResponse {
@@ -62,6 +68,13 @@ interface AuthError {
   field?: string;
 }
 
+// Keep the IAuthError interface for backward compatibility
+export interface IAuthError {
+  message: string;
+  statusCode?: number;
+  field?: string;
+}
+
 class AuthService {
   private baseURL: string;
   private token: string | null = null;
@@ -86,20 +99,28 @@ class AuthService {
         const token = await this.getStoredToken();
         if (token && config.headers) {
           config.headers.Authorization = `Bearer ${token}`;
+          console.log('🔐 Adding auth token to request');
         }
         return config;
       },
       (error) => {
+        console.error('❌ Request interceptor error:', error);
         return Promise.reject(error);
       }
     );
 
     // Add response interceptor to handle auth errors
     this.api.interceptors.response.use(
-      (response) => response,
+      (response) => {
+        console.log(`✅ API Success: ${response.config.method?.toUpperCase()} ${response.config.url} - ${response.status}`);
+        return response;
+      },
       async (error) => {
+        console.error(`❌ API Error: ${error.config?.method?.toUpperCase()} ${error.config?.url} - ${error.response?.status}`, error.response?.data);
+        
         if (error.response?.status === 401) {
           // Token expired or invalid, clear stored token
+          console.log('🔄 Token appears invalid, clearing stored credentials');
           await this.clearToken();
         }
         return Promise.reject(error);
@@ -113,10 +134,15 @@ class AuthService {
 
   async storeToken(token: string): Promise<void> {
     try {
+      if (!token || token.trim() === '') {
+        throw new Error('Cannot store empty or null token');
+      }
+      
       await AsyncStorage.setItem('authToken', token);
       this.token = token;
+      console.log('✅ Token stored successfully');
     } catch (error) {
-      console.error('Error storing token:', error);
+      console.error('❌ Error storing token:', error);
       throw new Error('Failed to store authentication token');
     }
   }
@@ -129,19 +155,19 @@ class AuthService {
       this.token = token;
       return token;
     } catch (error) {
-      console.error('Error getting stored token:', error);
+      console.error('❌ Error getting stored token:', error);
       return null;
     }
   }
 
   async clearToken(): Promise<void> {
     try {
-      await AsyncStorage.removeItem('authToken');
-      await AsyncStorage.removeItem('userData');
+      await AsyncStorage.multiRemove(['authToken', 'userData', 'tokenExpiry']);
       this.token = null;
       this.user = null;
+      console.log('✅ All auth data cleared');
     } catch (error) {
-      console.error('Error clearing token:', error);
+      console.error('❌ Error clearing token:', error);
     }
   }
 
@@ -151,10 +177,15 @@ class AuthService {
 
   async storeUserData(user: UserResponse): Promise<void> {
     try {
+      if (!user) {
+        throw new Error('Cannot store null user data');
+      }
+      
       await AsyncStorage.setItem('userData', JSON.stringify(user));
       this.user = user;
+      console.log('✅ User data stored successfully');
     } catch (error) {
-      console.error('Error storing user data:', error);
+      console.error('❌ Error storing user data:', error);
     }
   }
 
@@ -169,7 +200,7 @@ class AuthService {
       }
       return null;
     } catch (error) {
-      console.error('Error getting stored user data:', error);
+      console.error('❌ Error getting stored user data:', error);
       return null;
     }
   }
@@ -180,6 +211,8 @@ class AuthService {
 
   async register(userData: RegisterFormData): Promise<AuthTokenResponse> {
     try {
+      console.log('🔄 Attempting registration for:', userData.email);
+      
       const requestData: RegisterRequest = {
         email: userData.email,
         password: userData.password,
@@ -192,6 +225,8 @@ class AuthService {
 
       const response = await this.api.post<UserResponse>('/auth/register', requestData);
 
+      console.log('✅ Registration successful, attempting auto-login');
+
       // Note: Your FastAPI register endpoint returns UserResponse, not AuthTokenResponse
       // So we need to automatically log in after registration
       const loginResponse = await this.login({
@@ -201,12 +236,15 @@ class AuthService {
 
       return loginResponse;
     } catch (error) {
+      console.error('❌ Registration error:', error);
       throw this.handleError(error);
     }
   }
 
   async login(credentials: LoginFormData): Promise<AuthTokenResponse> {
     try {
+      console.log('🔄 Attempting login for:', credentials.email);
+      
       // Your FastAPI login endpoint expects query parameters, not JSON body
       const params = new URLSearchParams();
       params.append('email', credentials.email);
@@ -223,22 +261,51 @@ class AuthService {
         }
       );
 
-      if (response.data.access_token) {
-        await this.storeToken(response.data.access_token);
-        await this.storeUserData(response.data.user);
+      console.log('✅ Login response received');
+
+      if (!response.data.access_token) {
+        throw new Error('No access token received from server');
       }
+
+      if (!response.data.user) {
+        throw new Error('No user data received from server');
+      }
+
+      // Store token and user data
+      await this.storeToken(response.data.access_token);
+      await this.storeUserData(response.data.user);
+
+      // Store token expiry time if provided
+      if (response.data.expires_in) {
+        const expiryTime = Date.now() + (response.data.expires_in * 1000);
+        await AsyncStorage.setItem('tokenExpiry', expiryTime.toString());
+      }
+
+      console.log('✅ Login successful - token and user data stored');
 
       return response.data;
     } catch (error) {
+      console.error('❌ Login error:', error);
       throw this.handleError(error);
     }
   }
 
   async logout(): Promise<void> {
     try {
+      console.log('🔄 Logging out...');
+      
+      // Optional: Call backend logout endpoint if you have one
+      try {
+        await this.api.post('/auth/logout');
+      } catch (error) {
+        // Don't fail logout if backend call fails
+        console.warn('⚠️ Backend logout failed, continuing with local logout');
+      }
+      
       await this.clearToken();
+      console.log('✅ Logout successful');
     } catch (error) {
-      console.error('Error during logout:', error);
+      console.error('❌ Error during logout:', error);
       // Still clear local data even if API call fails
       await this.clearToken();
     }
@@ -250,24 +317,30 @@ class AuthService {
 
   async getCurrentUser(): Promise<UserResponse> {
     try {
+      console.log('🔄 Fetching current user...');
       const response = await this.api.get<UserResponse>('/auth/me');
       await this.storeUserData(response.data);
+      console.log('✅ Current user fetched successfully');
       return response.data;
     } catch (error) {
+      console.error('❌ Error getting current user:', error);
       throw this.handleError(error);
     }
   }
 
   async verifyToken(): Promise<{ valid: boolean; user: UserResponse }> {
     try {
+      console.log('🔄 Verifying token with backend...');
       const response = await this.api.post<{ valid: boolean; user: UserResponse }>('/auth/verify-token');
       
       if (response.data.valid && response.data.user) {
         await this.storeUserData(response.data.user);
+        console.log('✅ Token verification successful');
       }
       
       return response.data;
     } catch (error) {
+      console.error('❌ Token verification failed:', error);
       throw this.handleError(error);
     }
   }
@@ -279,13 +352,24 @@ class AuthService {
   async isAuthenticated(): Promise<boolean> {
     try {
       const token = await this.getStoredToken();
-      if (!token) return false;
+      if (!token) {
+        console.log('❌ No token found - user not authenticated');
+        return false;
+      }
+
+      // Check if token is expired
+      const isExpired = await this.isTokenExpired();
+      if (isExpired) {
+        console.log('❌ Token expired - clearing credentials');
+        await this.clearToken();
+        return false;
+      }
 
       // Verify token with backend
       const verification = await this.verifyToken();
       return verification.valid;
     } catch (error) {
-      console.error('Error checking authentication:', error);
+      console.error('❌ Error checking authentication:', error);
       await this.clearToken();
       return false;
     }
@@ -293,6 +377,27 @@ class AuthService {
 
   getCurrentUserData(): UserResponse | null {
     return this.user;
+  }
+
+  // ============================================================================
+  // TOKEN EXPIRY MANAGEMENT
+  // ============================================================================
+
+  async isTokenExpired(): Promise<boolean> {
+    try {
+      const expiryTime = await AsyncStorage.getItem('tokenExpiry');
+      if (!expiryTime) {
+        return false; // No expiry time stored, assume valid for now
+      }
+      
+      const now = Date.now();
+      const expiry = parseInt(expiryTime, 10);
+      
+      return now >= expiry;
+    } catch (error) {
+      console.error('❌ Error checking token expiry:', error);
+      return false; // Assume valid on error
+    }
   }
 
   // ============================================================================
@@ -368,6 +473,20 @@ class AuthService {
       return false;
     }
   }
+
+  // Debug method to check current auth state
+  async debugAuthState(): Promise<void> {
+    console.log('🔍 Debug Auth State:');
+    const token = await this.getStoredToken();
+    const userData = await this.getStoredUserData();
+    const isExpired = await this.isTokenExpired();
+    
+    console.log('- Token exists:', !!token);
+    console.log('- Token length:', token?.length || 0);
+    console.log('- Token expired:', isExpired);
+    console.log('- User data exists:', !!userData);
+    console.log('- User email:', userData?.email || 'none');
+  }
 }
 
 // Export singleton instance
@@ -379,12 +498,6 @@ export type {
   UserResponse, 
   AuthTokenResponse, 
   RegisterFormData, 
-  LoginFormData 
+  LoginFormData,
+  AuthError
 };
-
-// Export the AuthError interface separately to avoid conflicts
-export interface IAuthError {
-  message: string;
-  statusCode?: number;
-  field?: string;
-}
