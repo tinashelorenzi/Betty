@@ -1,4 +1,4 @@
-// src/screens/ChatScreen.tsx
+// src/screens/ChatScreen.tsx - FIXED VERSION
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
@@ -205,8 +205,9 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ navigation, route }) => {
             
             {item.processing_time && (
               <Text style={styles.processingTime}>
-                • {item.processing_time.toFixed(1)}s
-              </Text>
+              <Text>• {item.processing_time.toFixed(1)}s</Text>
+            </Text>
+            
             )}
           </View>
         </View>
@@ -229,24 +230,27 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ navigation, route }) => {
       <Text style={styles.welcomeSubtitle}>
         I'm Betty, your AI office assistant. How can I help you today?
       </Text>
+      
       <View style={styles.suggestionsContainer}>
         <TouchableOpacity 
           style={styles.suggestionChip}
-          onPress={() => setInputText("Help me write a professional email")}
+          onPress={() => setInputText("Create an invoice template")}
         >
-          <Text style={styles.suggestionText}>✉️ Write an email</Text>
+          <Text style={styles.suggestionText}>Create an invoice template</Text>
         </TouchableOpacity>
+        
         <TouchableOpacity 
           style={styles.suggestionChip}
-          onPress={() => setInputText("Create a meeting agenda")}
+          onPress={() => setInputText("Help me plan my day")}
         >
-          <Text style={styles.suggestionText}>📋 Meeting agenda</Text>
+          <Text style={styles.suggestionText}>Help me plan my day</Text>
         </TouchableOpacity>
+        
         <TouchableOpacity 
           style={styles.suggestionChip}
-          onPress={() => setInputText("Analyze this document")}
+          onPress={() => setInputText("What can you help me with?")}
         >
-          <Text style={styles.suggestionText}>📄 Analyze document</Text>
+          <Text style={styles.suggestionText}>What can you help me with?</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -255,32 +259,11 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ navigation, route }) => {
   return (
     <SafeAreaView style={styles.container}>
       <KeyboardAvoidingView 
-        style={styles.keyboardContainer}
+        style={styles.keyboardAvoid}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 25}
       >
-        {/* Header */}
-        <View style={styles.header}>
-          <TouchableOpacity 
-            style={styles.backButton}
-            onPress={() => navigation.goBack()}
-          >
-            <Ionicons name="arrow-back" size={24} color="#333" />
-          </TouchableOpacity>
-          
-          <View style={styles.headerContent}>
-            <Text style={styles.headerTitle}>Betty AI</Text>
-            <Text style={styles.headerSubtitle}>Always ready to help</Text>
-          </View>
-          
-          <View style={styles.headerActions}>
-            <TouchableOpacity style={styles.headerButton}>
-              <Ionicons name="ellipsis-vertical" size={20} color="#64748b" />
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        {/* Messages */}
+        {/* Messages Area */}
         <View style={styles.messagesContainer}>
           {isLoading ? (
             <View style={styles.loadingContainer}>
@@ -343,62 +326,35 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#f8fafc',
   },
-  keyboardContainer: {
+  keyboardAvoid: {
     flex: 1,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: '#fff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
-  },
-  backButton: {
-    padding: 8,
-    marginRight: 8,
-  },
-  headerContent: {
-    flex: 1,
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#1e293b',
-  },
-  headerSubtitle: {
-    fontSize: 12,
-    color: '#64748b',
-  },
-  headerActions: {
-    flexDirection: 'row',
-  },
-  headerButton: {
-    padding: 8,
   },
   messagesContainer: {
     flex: 1,
+  },
+  emptyContainer: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+  },
+  messagesContent: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    gap: 12,
   },
   loadingText: {
-    marginTop: 16,
     fontSize: 16,
     color: '#64748b',
   },
-  emptyContainer: {
-    flex: 1,
-  },
-  messagesContent: {
-    padding: 16,
-    paddingBottom: 8,
-  },
   messageContainer: {
     marginBottom: 16,
+    paddingHorizontal: 8,
   },
   userMessageContainer: {
     alignItems: 'flex-end',
@@ -406,6 +362,7 @@ const styles = StyleSheet.create({
   aiMessageContainer: {
     alignItems: 'flex-start',
     flexDirection: 'row',
+    gap: 8,
   },
   lastMessage: {
     marginBottom: 8,
@@ -414,18 +371,18 @@ const styles = StyleSheet.create({
     maxWidth: '80%',
     paddingHorizontal: 16,
     paddingVertical: 12,
-    borderRadius: 20,
+    borderRadius: 18,
   },
   userMessage: {
     backgroundColor: '#667eea',
-    borderBottomRightRadius: 4,
+    borderBottomRightRadius: 6,
   },
   aiMessage: {
     backgroundColor: '#fff',
-    borderBottomLeftRadius: 4,
     borderWidth: 1,
     borderColor: '#e2e8f0',
-    marginRight: 8,
+    borderBottomLeftRadius: 6,
+    flex: 1,
   },
   messageText: {
     fontSize: 16,
@@ -440,10 +397,11 @@ const styles = StyleSheet.create({
   messageFooter: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 4,
+    marginTop: 6,
+    gap: 4,
   },
   messageTime: {
-    fontSize: 11,
+    fontSize: 12,
   },
   userMessageTime: {
     color: 'rgba(255, 255, 255, 0.7)',
@@ -452,7 +410,7 @@ const styles = StyleSheet.create({
     color: '#94a3b8',
   },
   processingTime: {
-    fontSize: 11,
+    fontSize: 12,
     color: '#94a3b8',
   },
   aiAvatar: {
@@ -462,18 +420,16 @@ const styles = StyleSheet.create({
     backgroundColor: '#f1f5f9',
     justifyContent: 'center',
     alignItems: 'center',
-    alignSelf: 'flex-end',
+    marginTop: 4,
   },
   emptyState: {
-    flex: 1,
-    justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 32,
+    paddingTop: 40,
   },
   welcomeIcon: {
-    width: 96,
-    height: 96,
-    borderRadius: 48,
+    width: 80,
+    height: 80,
+    borderRadius: 40,
     backgroundColor: '#f1f5f9',
     justifyContent: 'center',
     alignItems: 'center',
