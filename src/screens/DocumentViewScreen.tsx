@@ -1,5 +1,5 @@
-// src/screens/DocumentViewScreen.tsx - Markdown Document Viewer with Google Drive Integration
-import React, { useState } from 'react';
+// src/screens/DocumentViewScreen.tsx - Fixed scrolling and zoom issue
+import React, { useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -18,11 +18,7 @@ import { StackNavigationProp } from '@react-navigation/stack';
 import { RouteProp } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Animatable from 'react-native-animatable';
-
-// You'll need to install this: npm install react-native-markdown-display
 import Markdown from 'react-native-markdown-display';
-
-import { RootStackParamList } from '../navigation/AppNavigator';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const { width, height } = Dimensions.get('window');
@@ -43,6 +39,9 @@ const DocumentViewScreen: React.FC<DocumentViewScreenProps> = ({ navigation, rou
   const { title, content, format, documentId } = route.params as DocumentViewParams;
   const [isPushing, setIsPushing] = useState(false);
   const [isSharing, setIsSharing] = useState(false);
+  const [zoomLevel, setZoomLevel] = useState(1);
+  
+  const scrollViewRef = useRef<ScrollView>(null);
 
   const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:8000';
 
@@ -52,6 +51,22 @@ const DocumentViewScreen: React.FC<DocumentViewScreenProps> = ({ navigation, rou
     } catch (error) {
       console.error('Error getting token:', error);
       return null;
+    }
+  };
+
+  // Zoom functionality
+  const handleZoomIn = () => {
+    setZoomLevel(prev => Math.min(prev + 0.25, 3));
+  };
+
+  const handleZoomOut = () => {
+    setZoomLevel(prev => Math.max(prev - 0.25, 0.5));
+  };
+
+  const resetZoom = () => {
+    setZoomLevel(1);
+    if (scrollViewRef.current) {
+      scrollViewRef.current.scrollTo({ x: 0, y: 0, animated: true });
     }
   };
 
@@ -87,7 +102,6 @@ const DocumentViewScreen: React.FC<DocumentViewScreenProps> = ({ navigation, rou
             { 
               text: 'Open in Drive', 
               onPress: () => {
-                // You could implement deep linking to Google Drive here
                 console.log('Open Google Drive:', result.document_url);
               }
             }
@@ -144,8 +158,8 @@ const DocumentViewScreen: React.FC<DocumentViewScreenProps> = ({ navigation, rou
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Header */}
-      <Animatable.View animation="fadeInDown" style={styles.header}>
+      {/* Header - Fixed */}
+      <View style={styles.header}>
         <View style={styles.headerLeft}>
           <TouchableOpacity 
             style={styles.backButton}
@@ -166,6 +180,25 @@ const DocumentViewScreen: React.FC<DocumentViewScreenProps> = ({ navigation, rou
         <View style={styles.headerActions}>
           <TouchableOpacity 
             style={styles.headerActionButton}
+            onPress={handleZoomOut}
+          >
+            <Ionicons name="remove" size={22} color="#64748b" />
+          </TouchableOpacity>
+          <Text style={styles.zoomText}>{Math.round(zoomLevel * 100)}%</Text>
+          <TouchableOpacity 
+            style={styles.headerActionButton}
+            onPress={handleZoomIn}
+          >
+            <Ionicons name="add" size={22} color="#64748b" />
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={styles.headerActionButton}
+            onPress={resetZoom}
+          >
+            <Ionicons name="resize-outline" size={22} color="#64748b" />
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={styles.headerActionButton}
             onPress={handleShare}
             disabled={isSharing}
           >
@@ -176,27 +209,29 @@ const DocumentViewScreen: React.FC<DocumentViewScreenProps> = ({ navigation, rou
             )}
           </TouchableOpacity>
         </View>
-      </Animatable.View>
+      </View>
 
-      {/* Document Content */}
-      <Animatable.View animation="fadeInUp" delay={200} style={styles.contentContainer}>
-        <ScrollView 
-          style={styles.scrollContent}
-          contentContainerStyle={styles.scrollContentContainer}
-          showsVerticalScrollIndicator={false}
-        >
-          <View style={styles.documentContent}>
-            {renderContent()}
-          </View>
-        </ScrollView>
-      </Animatable.View>
+      {/* Scrollable Content - Fixed Layout */}
+      <ScrollView 
+        ref={scrollViewRef}
+        style={styles.scrollView}
+        contentContainerStyle={styles.scrollContentContainer}
+        showsVerticalScrollIndicator={true}
+        showsHorizontalScrollIndicator={zoomLevel > 1}
+        bounces={true}
+        scrollEventThrottle={16}
+        maximumZoomScale={3}
+        minimumZoomScale={0.5}
+        zoomScale={zoomLevel}
+        bouncesZoom={true}
+      >
+        <View style={[styles.documentContent, { transform: [{ scale: zoomLevel }] }]}>
+          {renderContent()}
+        </View>
+      </ScrollView>
 
       {/* Floating Google Drive Button */}
-      <Animatable.View 
-        animation="bounceIn" 
-        delay={600}
-        style={styles.floatingButtonContainer}
-      >
+      <View style={styles.floatingButtonContainer}>
         <TouchableOpacity
           style={styles.floatingButton}
           onPress={handlePushToGoogleDrive}
@@ -220,7 +255,7 @@ const DocumentViewScreen: React.FC<DocumentViewScreenProps> = ({ navigation, rou
             )}
           </LinearGradient>
         </TouchableOpacity>
-      </Animatable.View>
+      </View>
     </SafeAreaView>
   );
 };
@@ -230,6 +265,7 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#f8fafc',
   },
+  // Fixed header - not scrollable
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -244,6 +280,7 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
     shadowRadius: 2,
+    // Remove flex to make it fixed height
   },
   headerLeft: {
     flexDirection: 'row',
@@ -279,18 +316,24 @@ const styles = StyleSheet.create({
     padding: 8,
     borderRadius: 8,
   },
-  contentContainer: {
-    flex: 1,
+  zoomText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#64748b',
+    minWidth: 45,
+    textAlign: 'center',
   },
-  scrollContent: {
-    flex: 1,
+  // Fixed ScrollView layout
+  scrollView: {
+    flex: 1, // Takes remaining space
   },
   scrollContentContainer: {
+    padding: 16,
     paddingBottom: 100, // Space for floating button
+    flexGrow: 1, // Allow content to grow
   },
   documentContent: {
     backgroundColor: 'white',
-    margin: 16,
     padding: 20,
     borderRadius: 12,
     elevation: 1,
@@ -298,15 +341,17 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
     shadowRadius: 2,
+    minHeight: height * 0.8, // Ensure content is tall enough to scroll
+    alignSelf: 'stretch', // Full width
   },
   textContent: {
     fontSize: 16,
     lineHeight: 24,
     color: '#1e293b',
     fontFamily: Platform.select({
-      ios: 'Menlo',
-      android: 'monospace',
-      default: 'monospace'
+      ios: 'System',
+      android: 'Roboto',
+      default: 'System'
     }),
   },
   floatingButtonContainer: {

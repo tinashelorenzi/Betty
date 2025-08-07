@@ -58,7 +58,7 @@ const DocumentFileMessage: React.FC<DocumentFileMessageProps> = ({
       <View style={styles.fileContent}>
         {/* File Icon */}
         <View style={styles.fileIcon}>
-          <Ionicons name={getFileIcon()} size={24} color="#667eea" />
+          <Ionicons name={getFileIcon()} size={18} color="#667eea" />
         </View>
         
         {/* File Info */}
@@ -98,8 +98,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#f8fafc',
     borderColor: '#e2e8f0',
     borderWidth: 1,
-    borderRadius: 12,
-    padding: 12,
+    borderRadius: 10,
+    padding: 10,
     marginVertical: 4,
     maxWidth: '85%',
     elevation: 1,
@@ -113,24 +113,24 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   fileIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
+    width: 32,
+    height: 32,
+    borderRadius: 8,
     backgroundColor: '#e0e7ff',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 12,
+    marginRight: 10,
   },
   fileInfo: {
     flex: 1,
     minWidth: 0, // Allow text to truncate properly
   },
   fileName: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '600',
     color: '#1e293b',
-    marginBottom: 4,
-    lineHeight: 20,
+    marginBottom: 3,
+    lineHeight: 18,
   },
   fileMetaContainer: {
     flexDirection: 'row',
@@ -157,7 +157,7 @@ const styles = StyleSheet.create({
   },
   timestampContainer: {
     alignItems: 'flex-end',
-    marginTop: 6,
+    marginTop: 4,
   },
   timestamp: {
     fontSize: 11,
