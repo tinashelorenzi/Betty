@@ -1,5 +1,5 @@
 // src/screens/DocumentViewScreen.tsx - Fixed scrolling and zoom issue
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -20,6 +20,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import * as Animatable from 'react-native-animatable';
 import Markdown from 'react-native-markdown-display';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useGoogleAuth } from '../hooks/useGoogleAuth';
 
 const { width, height } = Dimensions.get('window');
 
@@ -42,6 +43,9 @@ const DocumentViewScreen: React.FC<DocumentViewScreenProps> = ({ navigation, rou
   const [zoomLevel, setZoomLevel] = useState(1);
   
   const scrollViewRef = useRef<ScrollView>(null);
+  
+  // Add the Google Auth hook
+  const { isConnected, pushToGoogleDrive, checkStatus } = useGoogleAuth();
 
   const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:8000';
 
@@ -70,56 +74,82 @@ const DocumentViewScreen: React.FC<DocumentViewScreenProps> = ({ navigation, rou
     }
   };
 
+  // Updated push to Google Drive function
   const handlePushToGoogleDrive = async () => {
+    // Check if Google is connected first
+    if (!isConnected) {
+      Alert.alert(
+        'Google Account Not Connected',
+        'Please connect your Google account first to push documents to Google Drive.',
+        [
+          {
+            text: 'Cancel',
+            style: 'cancel'
+          },
+          {
+            text: 'Go to Profile',
+            onPress: () => navigation.navigate('Profile')
+          }
+        ]
+      );
+      return;
+    }
+
     setIsPushing(true);
     try {
-      const token = await getToken();
-      if (!token) {
-        Alert.alert('Authentication Error', 'Please log in again to push to Google Drive.');
-        return;
-      }
-
-      const response = await fetch(`${API_BASE_URL}/google/create-doc`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          title: title,
-          content: content,
-        }),
-      });
-
-      const result = await response.json();
-
-      if (response.ok) {
+      const success = await pushToGoogleDrive(title, content);
+      
+      if (success) {
         Alert.alert(
           'Success! 🎉', 
           'Document has been created in your Google Drive.',
           [
-            { text: 'Got it', style: 'default' },
-            { 
-              text: 'Open in Drive', 
-              onPress: () => {
-                console.log('Open Google Drive:', result.document_url);
-              }
+            {
+              text: 'OK',
+              style: 'default'
             }
           ]
         );
       } else {
-        throw new Error(result.detail || 'Failed to push to Google Drive');
+        throw new Error('Failed to create document');
       }
     } catch (error: any) {
       console.error('Error pushing to Google Drive:', error);
-      Alert.alert(
-        'Upload Failed', 
-        error.message || 'Failed to push document to Google Drive. Please try again.'
-      );
+      
+      let errorMessage = 'Failed to push document to Google Drive.';
+      
+      if (error.message?.includes('not connected')) {
+        errorMessage = 'Google account is not connected. Please reconnect your Google account.';
+        Alert.alert(
+          'Connection Error',
+          errorMessage,
+          [
+            {
+              text: 'Cancel',
+              style: 'cancel'
+            },
+            {
+              text: 'Go to Profile',
+              onPress: () => navigation.navigate('Profile')
+            }
+          ]
+        );
+      } else {
+        Alert.alert(
+          'Error',
+          error.message || errorMessage,
+          [{ text: 'OK' }]
+        );
+      }
     } finally {
       setIsPushing(false);
     }
   };
+
+  // Check Google connection status when component mounts
+  useEffect(() => {
+    checkStatus();
+  }, []);
 
   const handleShare = async () => {
     setIsSharing(true);
@@ -155,6 +185,51 @@ const DocumentViewScreen: React.FC<DocumentViewScreenProps> = ({ navigation, rou
       );
     }
   };
+
+  // Update the push button to show connection status
+  const PushToGoogleButton = () => (
+    <TouchableOpacity
+      style={[
+        styles.floatingButton,
+        !isConnected && styles.disabledButton,
+        isPushing && styles.loadingButton
+      ]}
+      onPress={handlePushToGoogleDrive}
+      disabled={isPushing}
+      activeOpacity={0.8}
+    >
+      <LinearGradient
+        colors={
+          !isConnected 
+            ? ['#9ca3af', '#6b7280']
+            : isPushing 
+              ? ['#93c5fd', '#60a5fa'] 
+              : ['#4285f4', '#1a73e8']
+        }
+        style={styles.floatingButtonGradient}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 0 }}
+      >
+        {isPushing ? (
+          <ActivityIndicator size="small" color="#fff" />
+        ) : (
+          <Ionicons 
+            name={isConnected ? "cloud-upload" : "cloud-offline"} 
+            size={20} 
+            color="#fff" 
+          />
+        )}
+        <Text style={styles.floatingButtonText}>
+          {isPushing 
+            ? 'Pushing...' 
+            : isConnected 
+              ? 'Push to Google Drive' 
+              : 'Connect Google First'
+          }
+        </Text>
+      </LinearGradient>
+    </TouchableOpacity>
+  );
 
   return (
     <SafeAreaView style={styles.container}>
@@ -232,29 +307,7 @@ const DocumentViewScreen: React.FC<DocumentViewScreenProps> = ({ navigation, rou
 
       {/* Floating Google Drive Button */}
       <View style={styles.floatingButtonContainer}>
-        <TouchableOpacity
-          style={styles.floatingButton}
-          onPress={handlePushToGoogleDrive}
-          disabled={isPushing}
-          activeOpacity={0.8}
-        >
-          <LinearGradient
-            colors={isPushing ? ['#94a3b8', '#64748b'] : ['#4285f4', '#1a73e8']}
-            style={styles.floatingButtonGradient}
-          >
-            {isPushing ? (
-              <>
-                <ActivityIndicator size="small" color="white" />
-                <Text style={styles.floatingButtonText}>Pushing...</Text>
-              </>
-            ) : (
-              <>
-                <Ionicons name="logo-google" size={20} color="white" />
-                <Text style={styles.floatingButtonText}>Push to Drive</Text>
-              </>
-            )}
-          </LinearGradient>
-        </TouchableOpacity>
+        <PushToGoogleButton />
       </View>
     </SafeAreaView>
   );
@@ -382,6 +435,12 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     fontSize: 15,
     marginLeft: 8,
+  },
+  disabledButton: {
+    opacity: 0.6,
+  },
+  loadingButton: {
+    opacity: 0.8,
   },
 });
 

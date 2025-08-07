@@ -19,6 +19,8 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Animatable from 'react-native-animatable';
 import { useNavigation, NavigationProp, useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../contexts/AuthContext';
+import { useGoogleAuth } from '../hooks/useGoogleAuth';
+import GoogleConnectButton from '../components/GoogleConnectButton';
 import { 
   profileService, 
   UserResponse,
@@ -160,6 +162,7 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({
 const ProfileScreen: React.FC = () => {
   const navigation = useNavigation<ProfileScreenNavigationProp>();
   const { user, logout } = useAuth();
+  const { isConnected, userInfo } = useGoogleAuth();
   
   // State management
   const [profile, setProfile] = useState<UserResponse | null>(null);
@@ -437,6 +440,40 @@ const ProfileScreen: React.FC = () => {
           </View>
         )}
 
+        {/* Google Account Section */}
+        <View style={styles.accountSection}>
+          <Text style={styles.sectionTitle}>Connected Accounts</Text>
+          
+          <View style={styles.accountItem}>
+            <View style={styles.accountHeader}>
+              <Ionicons name="logo-google" size={24} color="#4285F4" />
+              <Text style={styles.accountTitle}>Google Account</Text>
+            </View>
+            
+            {isConnected && userInfo ? (
+              <View style={styles.accountDetails}>
+                <Text style={styles.accountStatus}>✅ Connected</Text>
+                <Text style={styles.accountEmail}>{userInfo.user_email}</Text>
+                <Text style={styles.accountCapabilities}>
+                  • Push documents to Google Drive{'\n'}
+                  • Access Google Calendar{'\n'}
+                  • Sync data across devices
+                </Text>
+              </View>
+            ) : (
+              <View style={styles.accountDetails}>
+                <Text style={styles.accountStatusDisconnected}>❌ Not Connected</Text>
+                <Text style={styles.accountDescription}>
+                  Connect your Google account to enable document syncing, 
+                  calendar access, and cloud storage features.
+                </Text>
+              </View>
+            )}
+            
+            <GoogleConnectButton style={styles.connectButton} />
+          </View>
+        </View>
+
         {/* Menu Section */}
         <View style={styles.menuContainer}>
           <Text style={styles.sectionTitle}>Account</Text>
@@ -637,6 +674,73 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+
+  // Google Account Section Styles
+  accountSection: {
+    backgroundColor: '#fff',
+    marginHorizontal: 20,
+    marginVertical: 16,
+    padding: 20,
+    borderRadius: 16,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  accountItem: {
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    borderRadius: 12,
+    padding: 16,
+  },
+  accountHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+    gap: 12,
+  },
+  accountTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#374151',
+  },
+  accountDetails: {
+    marginBottom: 16,
+  },
+  accountStatus: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#059669',
+    marginBottom: 4,
+  },
+  accountStatusDisconnected: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#dc2626',
+    marginBottom: 8,
+  },
+  accountEmail: {
+    fontSize: 16,
+    color: '#6b7280',
+    marginBottom: 8,
+  },
+  accountCapabilities: {
+    fontSize: 14,
+    color: '#6b7280',
+    lineHeight: 20,
+  },
+  accountDescription: {
+    fontSize: 14,
+    color: '#6b7280',
+    lineHeight: 20,
+  },
+  connectButton: {
+    marginTop: 8,
   },
 
   // Stats Styles

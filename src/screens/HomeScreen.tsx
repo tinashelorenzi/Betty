@@ -17,6 +17,7 @@ import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import chatService, { ChatStats } from '../services/chatService';
+import GoogleConnectButton from '../components/GoogleConnectButton';
 
 const { width } = Dimensions.get('window');
 
@@ -142,6 +143,20 @@ const HomeScreen: React.FC<HomeScreenProps> = () => {
     },
   ];
 
+  const GoogleIntegrationSection = () => (
+    <View style={styles.sectionContainer}>
+      <View style={styles.sectionHeader}>
+        <Ionicons name="cloud-upload" size={24} color="#1E40AF" />
+        <Text style={styles.sectionTitle}>Google Integration</Text>
+      </View>
+      <Text style={styles.sectionDescription}>
+        Connect your Google account to push documents directly to Google Drive, 
+        access your calendar, and sync your data across devices.
+      </Text>
+      <GoogleConnectButton style={styles.googleButton} />
+    </View>
+  );
+
   const recentActivities = [
     {
       type: 'Chat',
@@ -216,6 +231,11 @@ const HomeScreen: React.FC<HomeScreenProps> = () => {
               </Text>
             </View>
           )}
+        </Animatable.View>
+
+        {/* Google Integration Section */}
+        <Animatable.View animation="fadeInUp" delay={300}>
+          <GoogleIntegrationSection />
         </Animatable.View>
 
         {/* Quick Actions */}
@@ -448,6 +468,31 @@ const styles = StyleSheet.create({
   },
   bottomSpacing: {
     height: 100,
+  },
+  // Google Integration Section Styles
+  sectionContainer: {
+    backgroundColor: '#fff',
+    marginHorizontal: 20,
+    marginVertical: 10,
+    padding: 20,
+    borderRadius: 16,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  sectionDescription: {
+    fontSize: 16,
+    color: '#6b7280',
+    lineHeight: 24,
+    marginBottom: 16,
+  },
+  googleButton: {
+    marginTop: 8,
   },
 });
 
