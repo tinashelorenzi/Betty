@@ -1,4 +1,4 @@
-// src/navigation/AppNavigator.tsx - COMPLETE NAVIGATOR
+// src/navigation/AppNavigator.tsx - Updated with Chat screens
 import React from 'react';
 import { View, Text, TouchableOpacity } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
@@ -23,6 +23,10 @@ import SettingsScreen from '../screens/SettingsScreen';
 import NotificationSettingsScreen from '../screens/NotificationSettingsScreen';
 import EditProfileScreen from '../screens/EditProfileScreen';
 
+// Import new chat screens
+import ConversationsScreen from '../screens/ConversationsScreen';
+import ChatScreen from '../screens/ChatScreen';
+
 // Type definitions for navigation
 export type RootStackParamList = {
   AuthLoading: undefined;
@@ -36,6 +40,13 @@ export type RootStackParamList = {
   EditProfile: undefined;
   Auth: undefined;
   Splash: undefined;
+  // Chat screens
+  Conversations: undefined;
+  Chat: {
+    conversationId?: string;
+    title?: string;
+    isNew?: boolean;
+  };
 };
 
 export type MainTabParamList = {
@@ -53,20 +64,60 @@ export type ProfileStackParamList = {
   EditProfile: undefined;
 };
 
+// Navigation prop types for all screens
+export type HomeScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Home'>;
+export type AssistantScreenNavigationProp = StackNavigationProp<MainTabParamList, 'Assistant'>;
+export type ConversationsScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Conversations'>;
+export type ChatScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Chat'>;
+export type SplashScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Splash'>;
 export type LoginScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Login'>;
 export type RegisterScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Register'>;
-export type SplashScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Splash'>;
+
+// Additional navigation types for any screens that might need them
+export type AuthScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Auth'>;
+export type ProfileScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Profile'>;
+export type SettingsScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Settings'>;
 
 const Stack = createStackNavigator<RootStackParamList>();
 const Tab = createBottomTabNavigator<MainTabParamList>();
 const ProfileStack = createStackNavigator<ProfileStackParamList>();
 
-// Auth Stack - for unauthenticated users
-const AuthStack: React.FC = () => (
-  <Stack.Navigator
-    initialRouteName="Login"
+// Profile Stack Navigator
+const ProfileStackNavigator: React.FC = () => (
+  <ProfileStack.Navigator
     screenOptions={{
       headerShown: false,
+    }}
+  >
+    <ProfileStack.Screen name="ProfileMain" component={ProfileScreen} />
+    <ProfileStack.Screen name="Settings" component={SettingsScreen} />
+    <ProfileStack.Screen name="NotificationSettings" component={NotificationSettingsScreen} />
+    <ProfileStack.Screen name="EditProfile" component={EditProfileScreen} />
+  </ProfileStack.Navigator>
+);
+
+// Main Tab Navigator
+const MainTabNavigator: React.FC = () => (
+  <Tab.Navigator
+    tabBar={(props) => <CustomTabBar {...props} />}
+    screenOptions={{
+      headerShown: false,
+    }}
+  >
+    <Tab.Screen name="Home" component={HomeScreen} />
+    <Tab.Screen name="Documents" component={DocumentsScreen} />
+    <Tab.Screen name="Assistant" component={AssistantScreen} />
+    <Tab.Screen name="Planner" component={PlannerScreen} />
+    <Tab.Screen name="Profile" component={ProfileStackNavigator} />
+  </Tab.Navigator>
+);
+
+// Auth Stack Navigator
+const AuthStackNavigator: React.FC = () => (
+  <Stack.Navigator
+    screenOptions={{
+      headerShown: false,
+      gestureEnabled: false,
     }}
   >
     <Stack.Screen name="Login" component={LoginScreen} />
@@ -74,141 +125,76 @@ const AuthStack: React.FC = () => (
   </Stack.Navigator>
 );
 
-// Profile Stack - for profile-related screens
-const ProfileStackNavigator: React.FC = () => (
-  <ProfileStack.Navigator
-    initialRouteName="ProfileMain"
-    screenOptions={{
-      headerShown: true,
-      headerStyle: {
-        backgroundColor: '#667eea',
-      },
-      headerTintColor: '#fff',
-      headerTitleStyle: {
-        fontWeight: 'bold',
-      },
-    }}
-  >
-    <ProfileStack.Screen 
-      name="ProfileMain" 
-      component={ProfileScreen}
-      options={{
-        title: 'Profile',
-        headerShown: false, // Profile screen has its own header
-      }}
-    />
-    <ProfileStack.Screen 
-      name="Settings" 
-      component={SettingsScreen}
-      options={{
-        title: 'Settings',
-      }}
-    />
-    <ProfileStack.Screen 
-      name="NotificationSettings" 
-      component={NotificationSettingsScreen}
-      options={{
-        title: 'Notifications',
-      }}
-    />
-    <ProfileStack.Screen 
-      name="EditProfile" 
-      component={EditProfileScreen}
-      options={{
-        title: 'Edit Profile',
-      }}
-    />
-  </ProfileStack.Navigator>
-);
-
-// Main Tab Navigator - for authenticated users
-const MainTabNavigator: React.FC = () => (
-  <Tab.Navigator
-    initialRouteName="Home"
-    tabBar={(props) => <CustomTabBar {...props} />}
-    screenOptions={{
-      headerShown: false,
-    }}
-  >
-    <Tab.Screen 
-      name="Home" 
-      component={HomeScreen}
-      options={{
-        title: 'Home',
-      }}
-    />
-    <Tab.Screen 
-      name="Documents" 
-      component={DocumentsScreen}
-      options={{
-        title: 'Documents',
-      }}
-    />
-    <Tab.Screen 
-      name="Assistant" 
-      component={AssistantScreen}
-      options={{
-        title: 'Assistant',
-      }}
-    />
-    <Tab.Screen 
-      name="Planner" 
-      component={PlannerScreen}
-      options={{
-        title: 'Planner',
-      }}
-    />
-    <Tab.Screen 
-      name="Profile" 
-      component={ProfileStackNavigator}
-      options={{
-        title: 'Profile',
-      }}
-    />
-  </Tab.Navigator>
-);
-
 // Main App Navigator
 const AppNavigator: React.FC = () => {
-  const { isAuthenticated, loading } = useAuth();
+  const { user, loading } = useAuth();
 
   return (
     <NavigationContainer>
-      <Stack.Navigator 
-        initialRouteName="Splash"
-        screenOptions={{ 
+      <Stack.Navigator
+        screenOptions={{
           headerShown: false,
-          cardStyle: { backgroundColor: '#f8f9ff' }
         }}
       >
-        {/* Always show splash first */}
-        <Stack.Screen 
-          name="Splash" 
-          component={SplashScreen}
-          options={{
-            cardStyle: { backgroundColor: '#2563EB' }
-          }}
-        />
-        
-        {/* Then show auth loading */}
-        <Stack.Screen name="AuthLoading" component={AuthLoadingScreen} />
-        
-        {isAuthenticated ? (
-          <Stack.Screen 
-            name="MainApp" 
-            component={MainTabNavigator}
-            options={{
-              gestureEnabled: false, // Prevent swipe back from main app
-            }}
-          />
+        {loading ? (
+          <>
+            <Stack.Screen name="Splash" component={SplashScreen} />
+            <Stack.Screen name="AuthLoading" component={AuthLoadingScreen} />
+          </>
+        ) : user ? (
+          <>
+            {/* Main app with tabs */}
+            <Stack.Screen name="MainApp" component={MainTabNavigator} />
+            
+            {/* Chat screens - these are modal-style screens */}
+            <Stack.Screen 
+              name="Conversations" 
+              component={ConversationsScreen}
+              options={{
+                headerShown: false,
+                presentation: 'modal',
+              }}
+            />
+            <Stack.Screen 
+              name="Chat" 
+              component={ChatScreen}
+              options={{
+                headerShown: false,
+                presentation: 'modal',
+              }}
+            />
+            
+            {/* Other modal screens */}
+            <Stack.Screen 
+              name="Settings" 
+              component={SettingsScreen}
+              options={{
+                headerShown: false,
+                presentation: 'modal',
+              }}
+            />
+            <Stack.Screen 
+              name="NotificationSettings" 
+              component={NotificationSettingsScreen}
+              options={{
+                headerShown: false,
+                presentation: 'modal',
+              }}
+            />
+            <Stack.Screen 
+              name="EditProfile" 
+              component={EditProfileScreen}
+              options={{
+                headerShown: false,
+                presentation: 'modal',
+              }}
+            />
+          </>
         ) : (
-          <Stack.Screen 
-            name="Auth" 
-            component={AuthStack}
-            options={{
-              animationTypeForReplace: !isAuthenticated ? 'pop' : 'push',
-            }}
-          />
+          <>
+            <Stack.Screen name="Splash" component={SplashScreen} />
+            <Stack.Screen name="Auth" component={AuthStackNavigator} />
+          </>
         )}
       </Stack.Navigator>
     </NavigationContainer>

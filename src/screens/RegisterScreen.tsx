@@ -16,19 +16,23 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Animatable from 'react-native-animatable';
 import { RouteProp } from '@react-navigation/native';
+import { useNavigation } from '@react-navigation/native';
+import { StackNavigationProp } from '@react-navigation/stack';
 import { RegisterScreenNavigationProp, RootStackParamList } from '../navigation/AppNavigator';
 import { useAuth } from '../contexts/AuthContext';
 import { authService, RegisterFormData, IAuthError } from '../services/authService';
 import PasswordInput from '../components/PasswordInput';
 
 const { width, height } = Dimensions.get('window');
+type RegisterNavigationProp = StackNavigationProp<RootStackParamList, 'Register'>;
 
 interface RegisterScreenProps {
   navigation: RegisterScreenNavigationProp;
   route: RouteProp<RootStackParamList, 'Register'>;
 }
 
-const RegisterScreen: React.FC<RegisterScreenProps> = ({ navigation }) => {
+const RegisterScreen: React.FC<RegisterScreenProps> = () => {
+    const navigation = useNavigation<RegisterNavigationProp>();
   const [formData, setFormData] = useState<RegisterFormData>({
     firstName: '',
     lastName: '',

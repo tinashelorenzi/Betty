@@ -16,18 +16,22 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Animatable from 'react-native-animatable';
 import { RouteProp } from '@react-navigation/native';
+import { StackNavigationProp } from '@react-navigation/stack';
+import { useNavigation } from '@react-navigation/native';
 import { LoginScreenNavigationProp, RootStackParamList } from '../navigation/AppNavigator';
 import { useAuth } from '../contexts/AuthContext';
 import { authService, LoginFormData, IAuthError } from '../services/authService';
 
 const { width, height } = Dimensions.get('window');
+type LoginNavigationProp = StackNavigationProp<RootStackParamList, 'Login'>;
 
 interface LoginScreenProps {
   navigation: LoginScreenNavigationProp;
   route: RouteProp<RootStackParamList, 'Login'>;
 }
 
-const LoginScreen: React.FC<LoginScreenProps> = ({ navigation }) => {
+const LoginScreen: React.FC<LoginScreenProps> = () => {
+  const navigation = useNavigation<LoginNavigationProp>();
   const [formData, setFormData] = useState<LoginFormData>({
     email: '',
     password: '',

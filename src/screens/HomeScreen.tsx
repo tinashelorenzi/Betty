@@ -1,5 +1,5 @@
-// src/screens/HomeScreen.tsx
-import React from 'react';
+// src/screens/HomeScreen.tsx - Updated with chat navigation
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -13,8 +13,14 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as Animatable from 'react-native-animatable';
 import { useAuth } from '../contexts/AuthContext';
+import { useNavigation } from '@react-navigation/native';
+import { StackNavigationProp } from '@react-navigation/stack';
+import { RootStackParamList } from '../navigation/AppNavigator';
+import chatService, { ChatStats } from '../services/chatService';
 
 const { width } = Dimensions.get('window');
+
+type NavigationProp = StackNavigationProp<RootStackParamList>;
 
 interface QuickActionProps {
   icon: keyof typeof Ionicons.glyphMap;
@@ -70,8 +76,52 @@ const RecentActivity: React.FC<RecentActivityProps> = ({ type, title, time, icon
   </TouchableOpacity>
 );
 
-const HomeScreen: React.FC = () => {
+interface HomeScreenProps {
+  // Remove navigation prop since we'll use useNavigation hook
+}
+
+const HomeScreen: React.FC<HomeScreenProps> = () => {
+  const navigation = useNavigation<NavigationProp>();
   const { user } = useAuth();
+  const [chatStats, setChatStats] = useState<ChatStats>({
+    total_conversations: 0,
+    total_messages: 0,
+    messages_today: 0,
+    avg_messages_per_conversation: 0
+  });
+
+  useEffect(() => {
+    loadChatStats();
+  }, []);
+
+  const loadChatStats = async () => {
+    try {
+      const stats = await chatService.getChatStats();
+      setChatStats(stats);
+    } catch (error) {
+      console.error('Error loading chat stats:', error);
+    }
+  };
+
+  const startNewChat = async () => {
+    try {
+      // Create a new conversation and navigate to it
+      const conversationId = await chatService.createNewConversation();
+      navigation.navigate('Chat', { 
+        conversationId, 
+        isNew: true,
+        title: 'New Chat'
+      });
+    } catch (error) {
+      console.error('Error starting new chat:', error);
+      // Fallback - navigate to chat without conversation ID
+      navigation.navigate('Chat', { isNew: true });
+    }
+  };
+
+  const viewConversations = () => {
+    navigation.navigate('Conversations');
+  };
 
   const quickActions = [
     {
@@ -79,7 +129,7 @@ const HomeScreen: React.FC = () => {
       title: 'Start Chat',
       subtitle: 'Talk to Betty AI',
       gradient: ['#667eea', '#764ba2'] as [string, string],
-      onPress: () => console.log('Navigate to chat'),
+      onPress: startNewChat,
     },
     {
       icon: 'document-text' as keyof typeof Ionicons.glyphMap,
@@ -106,16 +156,16 @@ const HomeScreen: React.FC = () => {
 
   const recentActivities = [
     {
+      type: 'Chat',
+      title: chatStats.total_conversations > 0 ? `${chatStats.total_conversations} conversations` : 'No conversations yet',
+      time: chatStats.messages_today > 0 ? `${chatStats.messages_today} messages today` : 'Start chatting',
+      icon: 'chatbubble' as keyof typeof Ionicons.glyphMap,
+    },
+    {
       type: 'Document',
       title: 'Q4 Sales Report Analysis',
       time: '2h ago',
       icon: 'document-text' as keyof typeof Ionicons.glyphMap,
-    },
-    {
-      type: 'Chat',
-      title: 'Marketing Strategy Discussion',
-      time: '4h ago',
-      icon: 'chatbubble' as keyof typeof Ionicons.glyphMap,
     },
     {
       type: 'Task',
@@ -147,59 +197,71 @@ const HomeScreen: React.FC = () => {
           </TouchableOpacity>
         </Animatable.View>
 
-        {/* Quick Stats */}
-        <Animatable.View animation="fadeInUp" delay={200} style={styles.statsContainer}>
-          <LinearGradient colors={['#667eea', '#764ba2']} style={styles.statsGradient}>
-            <View style={styles.statsContent}>
-              <View style={styles.statItem}>
-                <Text style={styles.statNumber}>47</Text>
-                <Text style={styles.statLabel}>Tasks Done</Text>
-              </View>
-              <View style={styles.statDivider} />
-              <View style={styles.statItem}>
-                <Text style={styles.statNumber}>12</Text>
-                <Text style={styles.statLabel}>Documents</Text>
-              </View>
-              <View style={styles.statDivider} />
-              <View style={styles.statItem}>
-                <Text style={styles.statNumber}>8.5h</Text>
-                <Text style={styles.statLabel}>Time Saved</Text>
-              </View>
+        {/* Chat Quick Access */}
+        <Animatable.View animation="fadeInUp" delay={200} style={styles.chatQuickAccess}>
+          <Text style={styles.sectionTitle}>Betty AI Assistant</Text>
+          <View style={styles.chatActions}>
+            <TouchableOpacity style={styles.primaryChatButton} onPress={startNewChat}>
+              <LinearGradient
+                colors={['#667eea', '#764ba2']}
+                style={styles.primaryChatGradient}
+              >
+                <Ionicons name="add" size={24} color="white" />
+                <Text style={styles.primaryChatText}>New Chat</Text>
+              </LinearGradient>
+            </TouchableOpacity>
+            
+            {chatStats.total_conversations > 0 && (
+              <TouchableOpacity style={styles.secondaryChatButton} onPress={viewConversations}>
+                <Ionicons name="chatbubbles-outline" size={20} color="#667eea" />
+                <Text style={styles.secondaryChatText}>
+                  {chatStats.total_conversations} Conversations
+                </Text>
+              </TouchableOpacity>
+            )}
+          </View>
+          
+          {chatStats.messages_today > 0 && (
+            <View style={styles.chatStats}>
+              <Text style={styles.chatStatsText}>
+                {chatStats.messages_today} messages sent today
+              </Text>
             </View>
-          </LinearGradient>
+          )}
         </Animatable.View>
 
         {/* Quick Actions */}
-        <View style={styles.section}>
-          <Animatable.Text animation="fadeInLeft" delay={300} style={styles.sectionTitle}>
-            Quick Actions
-          </Animatable.Text>
-          <View style={styles.quickActionsGrid}>
+        <Animatable.View animation="fadeInUp" delay={400} style={styles.section}>
+          <Text style={styles.sectionTitle}>Quick Actions</Text>
+          <View style={styles.quickActions}>
             {quickActions.map((action, index) => (
               <QuickAction
-                key={index}
+                key={action.title}
                 {...action}
-                delay={400 + index * 100}
+                delay={600 + index * 100}
               />
             ))}
           </View>
-        </View>
+        </Animatable.View>
 
         {/* Recent Activity */}
-        <View style={styles.section}>
-          <Animatable.Text animation="fadeInLeft" delay={800} style={styles.sectionTitle}>
-            Recent Activity
-          </Animatable.Text>
-          <Animatable.View animation="fadeInUp" delay={900} style={styles.recentContainer}>
+        <Animatable.View animation="fadeInUp" delay={800} style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Recent Activity</Text>
+            <TouchableOpacity>
+              <Text style={styles.seeAllText}>See all</Text>
+            </TouchableOpacity>
+          </View>
+          
+          <View style={styles.recentActivities}>
             {recentActivities.map((activity, index) => (
               <RecentActivity key={index} {...activity} />
             ))}
-            <TouchableOpacity style={styles.viewAllButton}>
-              <Text style={styles.viewAllText}>View All Activity</Text>
-              <Ionicons name="chevron-forward" size={16} color="#667eea" />
-            </TouchableOpacity>
-          </Animatable.View>
-        </View>
+          </View>
+        </Animatable.View>
+
+        {/* Bottom Spacing */}
+        <View style={styles.bottomSpacing} />
       </ScrollView>
     </SafeAreaView>
   );
@@ -208,24 +270,25 @@ const HomeScreen: React.FC = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f8f9ff',
+    backgroundColor: '#f8fafc',
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingVertical: 20,
+    paddingTop: 20,
+    paddingBottom: 24,
   },
   greeting: {
     fontSize: 16,
-    color: '#666',
-    fontWeight: '400',
+    color: '#64748b',
+    marginBottom: 4,
   },
   userName: {
     fontSize: 28,
     fontWeight: 'bold',
-    color: '#333',
+    color: '#1e293b',
   },
   notificationButton: {
     position: 'relative',
@@ -233,80 +296,117 @@ const styles = StyleSheet.create({
   },
   notificationBadge: {
     position: 'absolute',
-    top: 6,
-    right: 6,
+    top: 8,
+    right: 8,
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: '#ff4757',
+    backgroundColor: '#ef4444',
   },
-  statsContainer: {
-    marginHorizontal: 20,
-    marginBottom: 20,
+  
+  // Chat Quick Access Styles
+  chatQuickAccess: {
+    paddingHorizontal: 20,
+    marginBottom: 32,
+  },
+  chatActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  primaryChatButton: {
+    flex: 1,
+    marginRight: 12,
+  },
+  primaryChatGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    paddingHorizontal: 24,
     borderRadius: 16,
-    overflow: 'hidden',
   },
-  statsGradient: {
-    padding: 20,
+  primaryChatText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '600',
+    marginLeft: 8,
   },
-  statsContent: {
+  secondaryChatButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f1f5f9',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  secondaryChatText: {
+    color: '#667eea',
+    fontSize: 14,
+    fontWeight: '500',
+    marginLeft: 6,
+  },
+  chatStats: {
+    backgroundColor: '#f8fafc',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  chatStatsText: {
+    fontSize: 12,
+    color: '#64748b',
+    textAlign: 'center',
+  },
+
+  // Section Styles
+  section: {
+    paddingHorizontal: 20,
+    marginBottom: 32,
+  },
+  sectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-  },
-  statItem: {
-    alignItems: 'center',
-    flex: 1,
-  },
-  statNumber: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: 'white',
-  },
-  statLabel: {
-    fontSize: 12,
-    color: 'rgba(255,255,255,0.8)',
-    marginTop: 4,
-  },
-  statDivider: {
-    width: 1,
-    height: 30,
-    backgroundColor: 'rgba(255,255,255,0.3)',
-  },
-  section: {
-    marginBottom: 30,
+    marginBottom: 16,
   },
   sectionTitle: {
     fontSize: 20,
-    fontWeight: 'bold',
-    color: '#333',
-    paddingHorizontal: 20,
+    fontWeight: '600',
+    color: '#1e293b',
     marginBottom: 16,
   },
-  quickActionsGrid: {
-    paddingHorizontal: 20,
+  seeAllText: {
+    fontSize: 14,
+    color: '#667eea',
+    fontWeight: '500',
+  },
+
+  // Quick Actions Styles
+  quickActions: {
+    gap: 12,
   },
   quickActionWrapper: {
-    marginBottom: 12,
+    width: '100%',
   },
   quickAction: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'white',
+    backgroundColor: '#fff',
     padding: 16,
-    borderRadius: 12,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 8,
-    shadowColor: 'black',
-    shadowOpacity: 0.1,
-    elevation: 3,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
   },
   quickActionGradient: {
-    width: 48,
-    height: 48,
-    borderRadius: 12,
-    alignItems: 'center',
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     justifyContent: 'center',
+    alignItems: 'center',
     marginRight: 16,
   },
   quickActionText: {
@@ -315,63 +415,51 @@ const styles = StyleSheet.create({
   quickActionTitle: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#333',
+    color: '#1e293b',
+    marginBottom: 2,
   },
   quickActionSubtitle: {
     fontSize: 14,
-    color: '#666',
-    marginTop: 2,
+    color: '#64748b',
   },
-  recentContainer: {
-    backgroundColor: 'white',
-    marginHorizontal: 20,
-    borderRadius: 12,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 8,
-    shadowColor: 'black',
-    shadowOpacity: 0.1,
-    elevation: 3,
+
+  // Recent Activities Styles
+  recentActivities: {
+    gap: 12,
   },
   recentItem: {
     flexDirection: 'row',
     alignItems: 'center',
+    backgroundColor: '#fff',
     padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
   },
   recentIcon: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#f0f2ff',
-    alignItems: 'center',
+    backgroundColor: '#f1f5f9',
     justifyContent: 'center',
+    alignItems: 'center',
     marginRight: 12,
   },
   recentContent: {
     flex: 1,
   },
   recentTitle: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '500',
-    color: '#333',
+    color: '#1e293b',
+    marginBottom: 2,
   },
   recentType: {
-    fontSize: 13,
-    color: '#666',
-    marginTop: 2,
+    fontSize: 12,
+    color: '#64748b',
   },
-  viewAllButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 16,
-  },
-  viewAllText: {
-    fontSize: 15,
-    color: '#667eea',
-    fontWeight: '500',
-    marginRight: 4,
+  bottomSpacing: {
+    height: 100,
   },
 });
 
