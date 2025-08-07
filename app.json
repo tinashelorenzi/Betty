@@ -1,29 +1,58 @@
 {
   "expo": {
-    "name": "Betty",
-    "slug": "Betty",
+    "name": "Betty - Office Genius",
+    "slug": "betty-office-genius",
+    "owner": "tinashelorenzi",
+    "scheme": "betty",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
-    "newArchEnabled": true,
     "splash": {
-      "image": "./assets/splash-icon.png",
+      "image": "./assets/splash.png",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.betty.officegenius",
+      "infoPlist": {
+        "CFBundleURLTypes": [
+          {
+            "CFBundleURLName": "betty-oauth",
+            "CFBundleURLSchemes": ["betty"]
+          }
+        ]
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "#FFFFFF"
       },
-      "edgeToEdgeEnabled": true
+      "package": "com.betty.officegenius",
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "betty"
+            }
+          ],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
+    },
+    "extra": {
+      "googleClientId": "1092345143344-jv2v1ke2e01f4k73peuhjuq5kn5ocr6j.apps.googleusercontent.com",
+      "apiBaseUrl": "http://10.0.0.166:8000"
     }
   }
 }
