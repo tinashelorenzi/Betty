@@ -1,4 +1,4 @@
-// src/screens/ChatScreen.tsx - FIXED VERSION
+// src/screens/ChatScreen.tsx - WITH AI TYPING ANIMATION
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
@@ -17,8 +17,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { RouteProp } from '@react-navigation/native';
 
-import chatService, { MessageHistory, ChatMessage } from '../services/chatService';
+import chatService, { MessageHistory, ChatMessage, ChatResponse } from '../services/chatService';
 import { RootStackParamList } from '../navigation/AppNavigator';
+import TypingIndicator, { PulseTypingIndicator } from '../components/TypingIndicator';
 
 type ChatScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Chat'>;
 type ChatScreenRouteProp = RouteProp<RootStackParamList, 'Chat'>;
@@ -42,32 +43,83 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ navigation, route }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [conversationId, setConversationId] = useState<string | undefined>(initialConversationId);
+  const [connectionError, setConnectionError] = useState(false);
+  const [aiTypingMessage, setAiTypingMessage] = useState<string>('Betty is typing');
   const flatListRef = useRef<FlatList>(null);
+
+  // Random typing messages for variety
+  const typingMessages = [
+    'Betty is thinking',
+    'Betty is crafting a response',
+    'Betty is analyzing',
+    'Betty is working on it',
+    'Betty is typing',
+    'Betty is processing',
+  ];
+
+  const getRandomTypingMessage = () => {
+    return typingMessages[Math.floor(Math.random() * typingMessages.length)];
+  };
 
   useEffect(() => {
     if (conversationId && !isNew) {
       loadMessages();
     }
-    // Set header title
+    
     navigation.setOptions({
-      title: title || 'Chat with Betty',
+      title: title || (conversationId ? 'Chat with Betty' : 'New Chat'),
+      headerRight: () => (
+        <View style={styles.headerRight}>
+          {conversationId && (
+            <View style={styles.conversationIndicator}>
+              <View style={[
+                styles.activeIndicator, 
+                isSending && styles.processingIndicator
+              ]} />
+            </View>
+          )}
+        </View>
+      ),
     });
-  }, [conversationId, isNew, title, navigation]);
+  }, [conversationId, isNew, title, navigation, isSending]);
+
+  // Auto-scroll to bottom when AI starts typing
+  useEffect(() => {
+    if (isSending) {
+      setTimeout(() => {
+        flatListRef.current?.scrollToEnd({ animated: true });
+      }, 100);
+    }
+  }, [isSending]);
 
   const loadMessages = async () => {
     if (!conversationId) return;
     
     setIsLoading(true);
+    setConnectionError(false);
+    
     try {
+      console.log(`📥 Loading messages for conversation: ${conversationId}`);
       const messageHistory = await chatService.getConversationMessages(conversationId);
+      
       setMessages(messageHistory);
-      // Scroll to bottom after loading
+      console.log(`✅ Loaded ${messageHistory.length} messages`);
+      
       setTimeout(() => {
         flatListRef.current?.scrollToEnd({ animated: true });
       }, 100);
     } catch (error) {
-      console.error('Error loading messages:', error);
-      Alert.alert('Error', 'Failed to load conversation history');
+      console.error('❌ Error loading messages:', error);
+      setConnectionError(true);
+      
+      Alert.alert(
+        'Loading Error', 
+        'Failed to load conversation history. Please check your connection and try again.',
+        [
+          { text: 'Retry', onPress: () => loadMessages() },
+          { text: 'Cancel', style: 'cancel' }
+        ]
+      );
     } finally {
       setIsLoading(false);
     }
@@ -79,6 +131,10 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ navigation, route }) => {
     const userMessage = inputText.trim();
     setInputText('');
     setIsSending(true);
+    setConnectionError(false);
+
+    // Set random typing message
+    setAiTypingMessage(getRandomTypingMessage());
 
     // Add user message to UI immediately
     const tempUserMessage: MessageHistory = {
@@ -93,18 +149,43 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ navigation, route }) => {
     setMessages(prev => [...prev, tempUserMessage]);
 
     try {
-      const chatMessage: ChatMessage = {
-        content: userMessage,
-        message_type: 'text',
-      };
+      let response: ChatResponse;
+      let currentConversationId = conversationId;
 
-      // Send message to AI
-      const response = await chatService.sendMessage(chatMessage, conversationId);
-      
-      // If this is a new conversation, we might get a conversation ID back
-      if (!conversationId && response) {
-        // The backend should handle creating the conversation automatically
-        // We'll get the conversation ID from subsequent API calls or context
+      if (!conversationId) {
+        console.log('🔄 Starting new conversation...');
+        setAiTypingMessage('Betty is starting a new conversation');
+        
+        const result = await chatService.startNewConversation(userMessage);
+        currentConversationId = result.conversationId;
+        response = result.response;
+        
+        setConversationId(currentConversationId);
+        navigation.setOptions({
+          title: 'Chat with Betty',
+        });
+        
+        console.log(`✅ New conversation started: ${currentConversationId}`);
+      } else {
+        console.log(`🔄 Sending to existing conversation: ${currentConversationId}`);
+        
+        // Update typing message based on content
+        if (userMessage.toLowerCase().includes('create') || userMessage.toLowerCase().includes('make')) {
+          setAiTypingMessage('Betty is creating something for you');
+        } else if (userMessage.toLowerCase().includes('help') || userMessage.toLowerCase().includes('advice')) {
+          setAiTypingMessage('Betty is thinking of the best advice');
+        } else if (userMessage.toLowerCase().includes('plan') || userMessage.toLowerCase().includes('schedule')) {
+          setAiTypingMessage('Betty is organizing your plans');
+        } else {
+          setAiTypingMessage(getRandomTypingMessage());
+        }
+        
+        const chatMessage: ChatMessage = {
+          content: userMessage,
+          message_type: 'text',
+        };
+
+        response = await chatService.sendMessage(chatMessage, currentConversationId);
       }
 
       // Add AI response to UI
@@ -116,46 +197,84 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ navigation, route }) => {
         message_type: response.message_type,
         timestamp: new Date().toISOString(),
         processing_time: response.processing_time,
+        conversation_id: currentConversationId,
       };
 
       setMessages(prev => [...prev, aiMessage]);
 
-      // Show notifications for special actions
+      // Enhanced notifications for special actions
       if (response.document_created) {
         Alert.alert(
-          'Document Created',
+          '📄 Document Created',
           `Betty has created a new document: "${response.document_title}"`,
-          [{ text: 'OK' }]
+          [
+            { text: 'View Later', style: 'cancel' },
+            { 
+              text: 'View Now', 
+              onPress: () => navigation.navigate('Documents' as never)
+            }
+          ]
         );
       }
 
       if (response.task_created) {
         Alert.alert(
-          'Task Created',
+          '✅ Task Created',
           'Betty has created a new task for you.',
-          [{ text: 'OK' }]
+          [
+            { text: 'View Later', style: 'cancel' },
+            { 
+              text: 'View Now', 
+              onPress: () => navigation.navigate('Planner' as never)
+            }
+          ]
         );
       }
 
-      // Scroll to bottom
       setTimeout(() => {
         flatListRef.current?.scrollToEnd({ animated: true });
       }, 100);
 
-    } catch (error) {
-      console.error('Error sending message:', error);
+    } catch (error: any) {
+      console.error('❌ Error sending message:', error);
       
-      // Remove the temporary user message and show error
       setMessages(prev => prev.filter(msg => msg.id !== tempUserMessage.id));
+      setConnectionError(true);
+      
+      let errorTitle = 'Message Failed';
+      let errorMessage = 'Failed to send message. Please try again.';
+      
+      if (error.message.includes('Server error')) {
+        errorTitle = 'Service Unavailable';
+        errorMessage = 'The AI assistant is temporarily unavailable. Please try again in a moment.';
+      } else if (error.message.includes('Authentication failed')) {
+        errorTitle = 'Session Expired';
+        errorMessage = 'Your session has expired. Please log in again.';
+      } else if (error.message.includes('connection')) {
+        errorTitle = 'Connection Error';
+        errorMessage = 'Please check your internet connection and try again.';
+      } else if (error.message.includes('conversation')) {
+        errorTitle = 'Conversation Error';
+        errorMessage = 'There was an issue with the conversation. Try starting a new one.';
+      }
       
       Alert.alert(
-        'Error',
-        'Failed to send message. Please check your connection and try again.',
+        errorTitle,
+        errorMessage,
         [
           {
             text: 'Retry',
             onPress: () => {
               setInputText(userMessage);
+              setConnectionError(false);
+            },
+          },
+          {
+            text: 'New Chat',
+            onPress: () => {
+              setConversationId(undefined);
+              setMessages([]);
+              navigation.setOptions({ title: 'New Chat' });
             },
           },
           {
@@ -171,7 +290,14 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ navigation, route }) => {
 
   const formatMessageTime = (timestamp: string) => {
     const date = new Date(timestamp);
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const now = new Date();
+    const diffInHours = (now.getTime() - date.getTime()) / (1000 * 60 * 60);
+    
+    if (diffInHours < 24) {
+      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    } else {
+      return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+    }
   };
 
   const renderMessage = ({ item, index }: { item: MessageHistory; index: number }) => {
@@ -203,11 +329,10 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ navigation, route }) => {
               {formatMessageTime(item.timestamp)}
             </Text>
             
-            {item.processing_time && (
+            {item.processing_time && item.processing_time > 0 && (
               <Text style={styles.processingTime}>
-              <Text>• {item.processing_time.toFixed(1)}s</Text>
-            </Text>
-            
+                • {item.processing_time.toFixed(1)}s
+              </Text>
             )}
           </View>
         </View>
@@ -220,6 +345,10 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ navigation, route }) => {
       </View>
     );
   };
+
+  const renderTypingIndicator = () => (
+    <TypingIndicator visible={isSending} message={aiTypingMessage} />
+  );
 
   const renderEmptyState = () => (
     <View style={styles.emptyState}>
@@ -235,24 +364,43 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ navigation, route }) => {
         <TouchableOpacity 
           style={styles.suggestionChip}
           onPress={() => setInputText("Create an invoice template")}
+          disabled={isSending}
         >
+          <Ionicons name="document-text" size={16} color="#667eea" style={styles.suggestionIcon} />
           <Text style={styles.suggestionText}>Create an invoice template</Text>
         </TouchableOpacity>
         
         <TouchableOpacity 
           style={styles.suggestionChip}
           onPress={() => setInputText("Help me plan my day")}
+          disabled={isSending}
         >
+          <Ionicons name="calendar" size={16} color="#667eea" style={styles.suggestionIcon} />
           <Text style={styles.suggestionText}>Help me plan my day</Text>
         </TouchableOpacity>
         
         <TouchableOpacity 
           style={styles.suggestionChip}
           onPress={() => setInputText("What can you help me with?")}
+          disabled={isSending}
         >
+          <Ionicons name="help-circle" size={16} color="#667eea" style={styles.suggestionIcon} />
           <Text style={styles.suggestionText}>What can you help me with?</Text>
         </TouchableOpacity>
       </View>
+    </View>
+  );
+
+  const renderConnectionError = () => (
+    <View style={styles.errorContainer}>
+      <Ionicons name="cloud-offline" size={48} color="#ef4444" />
+      <Text style={styles.errorTitle}>Connection Error</Text>
+      <Text style={styles.errorMessage}>
+        Unable to connect to Betty. Please check your internet connection.
+      </Text>
+      <TouchableOpacity style={styles.retryButton} onPress={loadMessages}>
+        <Text style={styles.retryButtonText}>Retry Connection</Text>
+      </TouchableOpacity>
     </View>
   );
 
@@ -270,6 +418,8 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ navigation, route }) => {
               <ActivityIndicator size="large" color="#667eea" />
               <Text style={styles.loadingText}>Loading conversation...</Text>
             </View>
+          ) : connectionError && messages.length === 0 ? (
+            renderConnectionError()
           ) : (
             <FlatList
               ref={flatListRef}
@@ -279,25 +429,49 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ navigation, route }) => {
               contentContainerStyle={messages.length === 0 ? styles.emptyContainer : styles.messagesContent}
               showsVerticalScrollIndicator={false}
               ListEmptyComponent={renderEmptyState}
+              ListFooterComponent={renderTypingIndicator}
               onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
+              initialNumToRender={10}
+              maxToRenderPerBatch={10}
+              windowSize={21}
+              removeClippedSubviews={true}
             />
           )}
         </View>
+
+        {/* Connection Status Bar */}
+        {connectionError && messages.length > 0 && (
+          <View style={styles.connectionBar}>
+            <Ionicons name="warning" size={16} color="#f59e0b" />
+            <Text style={styles.connectionBarText}>Connection issues detected</Text>
+            <TouchableOpacity onPress={() => setConnectionError(false)}>
+              <Ionicons name="close" size={16} color="#6b7280" />
+            </TouchableOpacity>
+          </View>
+        )}
 
         {/* Input Area */}
         <View style={styles.inputContainer}>
           <View style={styles.inputWrapper}>
             <TextInput
-              style={styles.textInput}
+              style={[
+                styles.textInput,
+                connectionError && styles.textInputError
+              ]}
               value={inputText}
               onChangeText={setInputText}
-              placeholder="Type your message..."
+              placeholder={
+                conversationId 
+                  ? "Ask Betty anything..." 
+                  : "Start a conversation with Betty..."
+              }
               placeholderTextColor="#94a3b8"
               multiline
               maxLength={4000}
               returnKeyType="send"
-              onSubmitEditing={sendMessage}
+              onSubmitEditing={Platform.OS === 'ios' ? sendMessage : undefined}
               blurOnSubmit={false}
+              editable={!isSending}
             />
             
             <TouchableOpacity
@@ -309,11 +483,33 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ navigation, route }) => {
               disabled={!inputText.trim() || isSending}
             >
               {isSending ? (
-                <ActivityIndicator size="small" color="#fff" />
+                <View style={styles.sendingState}>
+                  <Ionicons name="hourglass" size={18} color="#94a3b8" />
+                </View>
               ) : (
-                <Ionicons name="send" size={20} color="#fff" />
+                <Ionicons 
+                  name="send" 
+                  size={20} 
+                  color={inputText.trim() ? "#fff" : "#94a3b8"} 
+                />
               )}
             </TouchableOpacity>
+          </View>
+          
+          {/* Character Counter */}
+          <View style={styles.inputFooter}>
+            {isSending && (
+              <Text style={styles.sendingText}>
+                {aiTypingMessage}...
+              </Text>
+            )}
+            <Text style={[
+              styles.characterCount,
+              inputText.length > 3800 && styles.characterCountWarning,
+              inputText.length >= 4000 && styles.characterCountError
+            ]}>
+              {inputText.length}/4000
+            </Text>
           </View>
         </View>
       </KeyboardAvoidingView>
@@ -328,6 +524,25 @@ const styles = StyleSheet.create({
   },
   keyboardAvoid: {
     flex: 1,
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginRight: 16,
+  },
+  conversationIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  activeIndicator: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#10b981',
+  },
+  processingIndicator: {
+    backgroundColor: '#f59e0b',
   },
   messagesContainer: {
     flex: 1,
@@ -352,6 +567,50 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#64748b',
   },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+    gap: 16,
+  },
+  errorTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#ef4444',
+  },
+  errorMessage: {
+    fontSize: 16,
+    color: '#64748b',
+    textAlign: 'center',
+    lineHeight: 24,
+  },
+  retryButton: {
+    backgroundColor: '#667eea',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  retryButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  connectionBar: {
+    backgroundColor: '#fef3c7',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#f59e0b',
+  },
+  connectionBarText: {
+    flex: 1,
+    fontSize: 14,
+    color: '#92400e',
+  },
   messageContainer: {
     marginBottom: 16,
     paddingHorizontal: 8,
@@ -372,6 +631,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderRadius: 18,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
   },
   userMessage: {
     backgroundColor: '#667eea',
@@ -412,6 +676,7 @@ const styles = StyleSheet.create({
   processingTime: {
     fontSize: 12,
     color: '#94a3b8',
+    fontStyle: 'italic',
   },
   aiAvatar: {
     width: 32,
@@ -421,6 +686,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginTop: 4,
+    borderWidth: 2,
+    borderColor: '#e2e8f0',
   },
   emptyState: {
     alignItems: 'center',
@@ -434,6 +701,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 24,
+    borderWidth: 2,
+    borderColor: '#e2e8f0',
   },
   welcomeTitle: {
     fontSize: 24,
@@ -450,6 +719,7 @@ const styles = StyleSheet.create({
   },
   suggestionsContainer: {
     width: '100%',
+    gap: 8,
   },
   suggestionChip: {
     backgroundColor: '#fff',
@@ -458,19 +728,30 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
     borderColor: '#e2e8f0',
-    marginBottom: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    elevation: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 1,
+  },
+  suggestionIcon: {
+    opacity: 0.7,
   },
   suggestionText: {
     fontSize: 14,
     color: '#475569',
-    textAlign: 'center',
+    flex: 1,
   },
   inputContainer: {
     backgroundColor: '#fff',
     borderTopWidth: 1,
     borderTopColor: '#e2e8f0',
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingTop: 12,
+    paddingBottom: 8,
   },
   inputWrapper: {
     flexDirection: 'row',
@@ -481,6 +762,11 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderWidth: 1,
     borderColor: '#e2e8f0',
+    elevation: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 1,
   },
   textInput: {
     flex: 1,
@@ -490,6 +776,32 @@ const styles = StyleSheet.create({
     marginRight: 8,
     paddingVertical: 8,
   },
+  textInputError: {
+    borderColor: '#ef4444',
+  },
+  inputFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingTop: 4,
+    paddingHorizontal: 4,
+  },
+  sendingText: {
+    fontSize: 12,
+    color: '#667eea',
+    fontStyle: 'italic',
+    flex: 1,
+  },
+  characterCount: {
+    fontSize: 12,
+    color: '#94a3b8',
+  },
+  characterCountWarning: {
+    color: '#f59e0b',
+  },
+  characterCountError: {
+    color: '#ef4444',
+  },
   sendButton: {
     width: 40,
     height: 40,
@@ -497,9 +809,20 @@ const styles = StyleSheet.create({
     backgroundColor: '#667eea',
     justifyContent: 'center',
     alignItems: 'center',
+    elevation: 2,
+    shadowColor: '#667eea',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
   },
   sendButtonDisabled: {
     backgroundColor: '#cbd5e1',
+    elevation: 0,
+    shadowOpacity: 0,
+  },
+  sendingState: {
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 });
 
