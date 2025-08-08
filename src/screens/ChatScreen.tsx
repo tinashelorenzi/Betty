@@ -68,22 +68,11 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ navigation, route }) => {
       loadMessages();
     }
     
+    // Hide the default navigation header since we have a custom one
     navigation.setOptions({
-      title: title || (conversationId ? 'Chat with Betty' : 'New Chat'),
-      headerRight: () => (
-        <View style={styles.headerRight}>
-          {conversationId && (
-            <View style={styles.conversationIndicator}>
-              <View style={[
-                styles.activeIndicator, 
-                isSending && styles.processingIndicator
-              ]} />
-            </View>
-          )}
-        </View>
-      ),
+      headerShown: false,
     });
-  }, [conversationId, isNew, title, navigation, isSending]);
+  }, [conversationId, isNew, navigation]);
 
   // Auto-scroll to bottom when AI starts typing
   useEffect(() => {
@@ -436,6 +425,37 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ navigation, route }) => {
 
   return (
     <SafeAreaView style={styles.container}>
+      {/* Custom Fixed Header */}
+      <View style={styles.customHeader}>
+        <View style={styles.headerLeft}>
+          <TouchableOpacity 
+            style={styles.backButton}
+            onPress={() => navigation.goBack()}
+          >
+            <Ionicons name="arrow-back" size={24} color="#1e293b" />
+          </TouchableOpacity>
+          <View style={styles.headerInfo}>
+            <Text style={styles.headerTitle} numberOfLines={1}>
+              {title || (conversationId ? 'Chat with Betty' : 'New Chat')}
+            </Text>
+            <Text style={styles.headerSubtitle}>
+              {conversationId ? 'Active conversation' : 'Start a new chat'}
+            </Text>
+          </View>
+        </View>
+        
+        <View style={styles.headerRight}>
+          {conversationId && (
+            <View style={styles.conversationIndicator}>
+              <View style={[
+                styles.activeIndicator, 
+                isSending && styles.processingIndicator
+              ]} />
+            </View>
+          )}
+        </View>
+      </View>
+
       <KeyboardAvoidingView 
         style={styles.keyboardContainer}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -542,6 +562,47 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f8fafc',
+  },
+  // Custom Header Styles
+  customHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: 'white',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e2e8f0',
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+  },
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  backButton: {
+    padding: 8,
+    marginRight: 8,
+  },
+  headerInfo: {
+    flex: 1,
+    minWidth: 0, // Allow text truncation
+  },
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#1e293b',
+    lineHeight: 24,
+  },
+  headerSubtitle: {
+    fontSize: 13,
+    color: '#64748b',
+    fontWeight: '500',
+    marginTop: 2,
   },
   keyboardContainer: {
     flex: 1,

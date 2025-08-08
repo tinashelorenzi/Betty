@@ -1,3 +1,4 @@
+// src/components/GoogleConnectButton.tsx - Cross-platform for Mobile & Expo Web
 import React, { useState } from 'react';
 import {
   TouchableOpacity,
@@ -6,12 +7,11 @@ import {
   View,
   ActivityIndicator,
   Alert,
-  Modal,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useGoogleAuth } from '../hooks/useGoogleAuth';
-import OAuthWebView from './OAuthWebView';
 
 interface GoogleConnectButtonProps {
   style?: any;
@@ -31,22 +31,105 @@ const GoogleConnectButton: React.FC<GoogleConnectButtonProps> = ({
     checkStatus 
   } = useGoogleAuth();
 
-  const [showWebView, setShowWebView] = useState(false);
-  const [authUrl, setAuthUrl] = useState('');
+  const [isConnecting, setIsConnecting] = useState(false);
 
   const handleConnect = async () => {
     try {
-      const url = await connectGoogle();
-      if (url) {
-        setAuthUrl(url);
-        setShowWebView(true);
+      setIsConnecting(true);
+      
+      if (Platform.OS === 'web') {
+        // For web, the OAuth will redirect in the same window
+        await connectGoogle();
+        // No need for additional handling as the page will redirect
+      } else {
+        // For mobile, handle the OAuth flow
+        const authUrl = await connectGoogle();
+        
+        if (authUrl) {
+          // Show instructions for mobile users
+          Alert.alert(
+            'Complete Authentication',
+            'Please complete the Google authentication in the browser that just opened. After authorizing, return to this app.',
+            [
+              {
+                text: 'OK',
+                onPress: () => {
+                  // Start checking status periodically
+                  const checkInterval = setInterval(async () => {
+                    await checkStatus();
+                    if (isConnected) {
+                      clearInterval(checkInterval);
+                      Alert.alert(
+                        'Success! 🎉',
+                        'Your Google account has been connected successfully.',
+                        [{ text: 'Great!' }]
+                      );
+                      onConnectionChange?.(true);
+                    }
+                  }, 3000);
+                  
+                  // Stop checking after 2 minutes
+                  setTimeout(() => {
+                    clearInterval(checkInterval);
+                  }, 120000);
+                }
+              }
+            ]
+          );
+        }
       }
+      
     } catch (error: any) {
+      console.error('Connection error:', error);
       Alert.alert(
         'Connection Failed',
         error.message || 'Failed to connect to Google. Please try again.',
         [{ text: 'OK' }]
       );
+    } finally {
+      setIsConnecting(false);
+    }
+  };
+
+  const handleCheckStatus = async () => {
+    try {
+      setIsConnecting(true);
+      await checkStatus();
+      
+      // Give user feedback about the result
+      setTimeout(() => {
+        if (isConnected) {
+          Alert.alert(
+            'Success! 🎉',
+            'Your Google account has been connected successfully. You can now push documents to Google Drive.',
+            [{ text: 'Great!' }]
+          );
+          onConnectionChange?.(true);
+        } else {
+          Alert.alert(
+            'Not Connected',
+            'Google account is not yet connected. Please make sure you completed the authentication in your browser.',
+            [
+              {
+                text: 'Try Again',
+                onPress: handleConnect
+              },
+              {
+                text: 'Cancel',
+                style: 'cancel'
+              }
+            ]
+          );
+        }
+      }, 1000);
+      
+    } catch (error: any) {
+      Alert.alert(
+        'Check Failed',
+        'Unable to check connection status. Please try again.'
+      );
+    } finally {
+      setIsConnecting(false);
     }
   };
 
@@ -61,16 +144,25 @@ const GoogleConnectButton: React.FC<GoogleConnectButtonProps> = ({
           style: 'destructive',
           onPress: async () => {
             try {
+              setIsConnecting(true);
               const success = await disconnectGoogle();
+              
               if (success) {
                 Alert.alert('Success', 'Google account disconnected successfully');
                 onConnectionChange?.(false);
+              } else {
+                Alert.alert(
+                  'Disconnection Failed',
+                  'Failed to disconnect Google account. Please try again.'
+                );
               }
             } catch (error: any) {
               Alert.alert(
                 'Disconnection Failed',
                 error.message || 'Failed to disconnect Google account'
               );
+            } finally {
+              setIsConnecting(false);
             }
           },
         },
@@ -78,185 +170,153 @@ const GoogleConnectButton: React.FC<GoogleConnectButtonProps> = ({
     );
   };
 
-  const handleAuthSuccess = async (data: any) => {
-    setShowWebView(false);
-    setAuthUrl('');
-    
-    if (data.success) {
-      Alert.alert(
-        'Success! 🎉',
-        'Your Google account has been connected successfully. You can now push documents to Google Drive.',
-        [{ text: 'OK' }]
-      );
-      
-      // Refresh status
-      await checkStatus();
-      onConnectionChange?.(true);
-    } else {
-      Alert.alert(
-        'Connection Failed',
-        'Failed to connect your Google account. Please try again.'
-      );
-    }
-  };
+  const isButtonLoading = isLoading || isConnecting;
 
-  const handleAuthError = (error: string) => {
-    setShowWebView(false);
-    setAuthUrl('');
-    Alert.alert(
-      'Connection Failed',
-      error || 'Authentication failed. Please try again.'
-    );
-  };
-
-  const handleCloseWebView = () => {
-    setShowWebView(false);
-    setAuthUrl('');
-  };
-
-  if (isLoading) {
+  if (isConnected) {
     return (
-      <View style={[styles.buttonContainer, styles.loadingContainer, style]}>
-        <ActivityIndicator size="small" color="#1E40AF" />
-        <Text style={styles.loadingText}>Checking status...</Text>
+      <View style={[styles.container, style]}>
+        <View style={styles.connectedContainer}>
+          <View style={styles.connectedInfo}>
+            <Ionicons name="checkmark-circle" size={24} color="#4CAF50" />
+            <View style={styles.connectedText}>
+              <Text style={styles.connectedTitle}>Google Connected</Text>
+              {userInfo?.email && (
+                <Text style={styles.connectedEmail}>{userInfo.email}</Text>
+              )}
+            </View>
+          </View>
+          
+          <TouchableOpacity
+            style={styles.disconnectButton}
+            onPress={handleDisconnect}
+            disabled={isButtonLoading}
+          >
+            {isButtonLoading ? (
+              <ActivityIndicator size="small" color="#FF5722" />
+            ) : (
+              <Text style={styles.disconnectText}>Disconnect</Text>
+            )}
+          </TouchableOpacity>
+        </View>
       </View>
     );
   }
 
   return (
-    <>
-      {isConnected ? (
-        <View style={[styles.connectedContainer, style]}>
-          <View style={styles.connectedInfo}>
-            <View style={styles.connectedStatus}>
-              <Ionicons name="checkmark-circle" size={20} color="#10B981" />
-              <Text style={styles.connectedText}>Google Connected</Text>
-            </View>
-            {userInfo?.user_email && (
-              <Text style={styles.userEmail}>{userInfo.user_email}</Text>
-            )}
-          </View>
-          <TouchableOpacity
-            style={styles.disconnectButton}
-            onPress={handleDisconnect}
-          >
-            <Text style={styles.disconnectText}>Disconnect</Text>
-          </TouchableOpacity>
-        </View>
-      ) : (
-        <TouchableOpacity
-          style={[styles.buttonContainer, style]}
-          onPress={handleConnect}
-          disabled={isLoading}
+    <View style={[styles.container, style]}>
+      <TouchableOpacity
+        style={styles.connectButton}
+        onPress={handleConnect}
+        disabled={isButtonLoading}
+      >
+        <LinearGradient
+          colors={['#4285F4', '#34A853']}
+          style={styles.gradient}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 0 }}
         >
-          <LinearGradient
-            colors={['#4285F4', '#34A853', '#FBBC05']}
-            style={styles.gradient}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-          >
-            <Ionicons name="logo-google" size={20} color="#fff" />
-            <Text style={styles.buttonText}>Connect to Google</Text>
-          </LinearGradient>
+          {isButtonLoading ? (
+            <ActivityIndicator size="small" color="#FFFFFF" />
+          ) : (
+            <>
+              <Ionicons name="logo-google" size={20} color="#FFFFFF" />
+              <Text style={styles.connectText}>Connect Google</Text>
+            </>
+          )}
+        </LinearGradient>
+      </TouchableOpacity>
+      
+      {/* Show check status button only on mobile platforms */}
+      {Platform.OS !== 'web' && (
+        <TouchableOpacity
+          style={styles.checkStatusButton}
+          onPress={handleCheckStatus}
+          disabled={isButtonLoading}
+        >
+          <Text style={styles.checkStatusText}>Check Connection Status</Text>
         </TouchableOpacity>
       )}
-
-      <Modal
-        visible={showWebView}
-        animationType="slide"
-        presentationStyle="fullScreen"
-      >
-        {authUrl ? (
-          <OAuthWebView
-            url={authUrl}
-            onSuccess={handleAuthSuccess}
-            onError={handleAuthError}
-            onClose={handleCloseWebView}
-          />
-        ) : null}
-      </Modal>
-    </>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
-  buttonContainer: {
+  container: {
+    width: '100%',
+  },
+  connectButton: {
+    width: '100%',
+    height: 50,
     borderRadius: 12,
     overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
     elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
   },
   gradient: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 12,
     paddingHorizontal: 20,
-    gap: 8,
   },
-  buttonText: {
-    color: '#fff',
+  connectText: {
+    color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '600',
+    marginLeft: 10,
   },
-  loadingContainer: {
-    flexDirection: 'row',
+  checkStatusButton: {
+    marginTop: 10,
+    padding: 12,
+    borderRadius: 8,
+    backgroundColor: '#F5F5F5',
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    backgroundColor: '#f3f4f6',
-    gap: 8,
   },
-  loadingText: {
-    color: '#6b7280',
-    fontSize: 16,
+  checkStatusText: {
+    color: '#666',
+    fontSize: 14,
+    fontWeight: '500',
   },
   connectedContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: '#f0fdf4',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
+    backgroundColor: '#F8F9FA',
     borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#bbf7d0',
+    padding: 16,
+    borderLeftWidth: 4,
+    borderLeftColor: '#4CAF50',
   },
   connectedInfo: {
-    flex: 1,
-  },
-  connectedStatus: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    marginBottom: 2,
+    marginBottom: 12,
   },
   connectedText: {
-    color: '#059669',
+    marginLeft: 12,
+    flex: 1,
+  },
+  connectedTitle: {
     fontSize: 16,
     fontWeight: '600',
+    color: '#333',
   },
-  userEmail: {
-    color: '#6b7280',
+  connectedEmail: {
     fontSize: 14,
+    color: '#666',
+    marginTop: 2,
   },
   disconnectButton: {
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    backgroundColor: '#fee2e2',
-    borderRadius: 8,
+    alignSelf: 'flex-start',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 6,
+    backgroundColor: '#FFEBEE',
     borderWidth: 1,
-    borderColor: '#fecaca',
+    borderColor: '#FF5722',
   },
   disconnectText: {
-    color: '#dc2626',
+    color: '#FF5722',
     fontSize: 14,
     fontWeight: '500',
   },
