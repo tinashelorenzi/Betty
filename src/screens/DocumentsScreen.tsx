@@ -1,4 +1,4 @@
-// src/screens/DocumentsScreen.tsx - Enhanced with export functionality
+// src/screens/DocumentsScreen.tsx - Fixed to use updated hook functions
 import React, { useState, useContext, useEffect } from 'react';
 import {
   View,
@@ -45,18 +45,20 @@ const DocumentsScreen: React.FC<DocumentsScreenProps> = ({ navigation }) => {
   const [modalVisible, setModalVisible] = useState(false);
   const [newDocName, setNewDocName] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
-  const [isExporting, setIsExporting] = useState(false);
-  const [exportResult, setExportResult] = useState<any>(null);
-  const [exportProgress, setExportProgress] = useState(0);
-  const [exportMessage, setExportMessage] = useState('');
   
   const { user: googleUser } = useAuth();
-  const { isConnected } = useGoogleAuth();
+  
+  // FIXED: Use the updated hook with correct function names
+  const { 
+    isConnected, 
+    exportProgress,           // NEW: Built-in progress tracking
+    exportToGoogleDocs,       // FIXED: Renamed from pushToGoogleDrive
+    generateDocument          // NEW: Secure document generation
+  } = useGoogleAuth();
   
   // Mock documents state - replace with your actual context
   const [documents, setDocuments] = useState(mockDocuments);
-
-  const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:8000';
+  const [exportResult, setExportResult] = useState<any>(null);
 
   // Mock addDocument function - replace with your actual context
   const addDocument = (name: string, content: string) => {
@@ -66,40 +68,31 @@ const DocumentsScreen: React.FC<DocumentsScreenProps> = ({ navigation }) => {
     }));
   };
 
-  // Keep your existing document generation but call FastAPI instead
+  // FIXED: Use the new generateDocument function from the hook
   const handleCreateFromInput = async () => {
     if (newDocName.trim() === '' || isGenerating) return;
     setIsGenerating(true);
     
     try {
-      // Call your FastAPI backend instead of direct AI API
-      const response = await fetch(`${API_BASE_URL}/api/documents/generate`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${googleUser?.accessToken}`, // If you have user auth
-        },
-        body: JSON.stringify({
-          document_name: newDocName.trim(),
-          user_id: googleUser?.uid
-        })
-      });
-
-      if (!response.ok) throw new Error('Failed to generate document');
+      // Use the generateDocument function from the hook (secure)
+      const result = await generateDocument(newDocName.trim());
       
-      const result = await response.json();
-      addDocument(newDocName.trim(), result.content);
-      setNewDocName('');
+      if (result.success && result.content) {
+        addDocument(newDocName.trim(), result.content);
+        setNewDocName('');
+      } else {
+        throw new Error(result.error || 'Failed to generate document');
+      }
       
-    } catch (error) { 
+    } catch (error: any) { 
       console.error("Document generation failed:", error);
-      Alert.alert('Error', 'Failed to generate document. Please try again.');
+      Alert.alert('Error', error.message || 'Failed to generate document. Please try again.');
     } finally { 
       setIsGenerating(false); 
     }
   };
 
-  // Enhanced export function that preserves markdown formatting
+  // FIXED: Use the new exportToGoogleDocs function from the hook
   const handleExportToGoogle = async () => {
     if (!isConnected) {
       Alert.alert(
@@ -115,51 +108,20 @@ const DocumentsScreen: React.FC<DocumentsScreenProps> = ({ navigation }) => {
     
     if (!selectedDoc) return;
     
-    setIsExporting(true);
-    setExportProgress(0);
-    setExportMessage('Preparing document for export...');
-    
     try {
-      // Simulate progress updates
-      setExportProgress(25);
-      setExportMessage('Converting markdown to Google Docs format...');
+      // Use the exportToGoogleDocs function from the hook
+      const result = await exportToGoogleDocs(selectedDoc, documents[selectedDoc]);
       
-      // Call your enhanced FastAPI endpoint
-      const response = await fetch(`${API_BASE_URL}/api/google/create-formatted-doc`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${googleUser?.accessToken}`,
-        },
-        body: JSON.stringify({
-          title: selectedDoc,
-          content: documents[selectedDoc], // This is the markdown content
-          format: true, // Enable rich text formatting
-          preserve_markdown: true // Tell backend to convert markdown to Google Docs formatting
-        })
-      });
-
-      setExportProgress(75);
-      setExportMessage('Creating document in Google Drive...');
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.detail || 'Failed to create Google Doc');
+      if (result.success) {
+        setExportResult(result);
+        setModalVisible(true);
+      } else {
+        throw new Error(result.error || 'Export failed');
       }
-
-      const result = await response.json();
-      
-      setExportProgress(100);
-      setExportMessage('Export completed successfully!');
-      
-      setExportResult(result);
-      setModalVisible(true);
       
     } catch (error: any) {
       console.error('Export failed:', error);
       Alert.alert('Export Failed', `Failed to export to Google Docs: ${error.message}`);
-    } finally {
-      setIsExporting(false);
     }
   };
 
@@ -177,32 +139,32 @@ const DocumentsScreen: React.FC<DocumentsScreenProps> = ({ navigation }) => {
   const closeModal = () => {
     setModalVisible(false);
     setExportResult(null);
-    setExportProgress(0);
-    setExportMessage('');
   };
 
   const openDocument = (docName: string) => {
-    navigation.navigate('DocumentView', {
-      title: docName,
-      content: documents[docName],
-      format: 'markdown',
-      documentId: docName
-    });
+    setSelectedDoc(docName); // Show document in current screen
+    // OR navigate to separate view:
+    // navigation.navigate('DocumentView', {
+    //   title: docName,
+    //   content: documents[docName],
+    //   format: 'markdown',
+    //   documentId: docName
+    // });
   };
 
   if (selectedDoc) {
     return (
       <SafeAreaView style={styles.container}>
-        {/* Enhanced Success/Progress Modal */}
-        <Modal visible={modalVisible || isExporting} transparent animationType="fade">
+        {/* FIXED: Use exportProgress from hook instead of local state */}
+        <Modal visible={modalVisible || exportProgress.isExporting} transparent animationType="fade">
           <View style={styles.modalOverlay}>
             <Animatable.View
               animation="zoomIn"
               duration={300}
               style={styles.enhancedModalContent}
             >
-              {isExporting ? (
-                // Export Progress View
+              {exportProgress.isExporting ? (
+                // Export Progress View - Uses hook's progress tracking
                 <View style={styles.modalHeader}>
                   <View style={styles.loadingIcon}>
                     <ActivityIndicator size="large" color="#4285F4" />
@@ -213,11 +175,11 @@ const DocumentsScreen: React.FC<DocumentsScreenProps> = ({ navigation }) => {
                       <View 
                         style={[
                           styles.progressFill, 
-                          { width: `${exportProgress}%` }
+                          { width: `${exportProgress.progress}%` }
                         ]} 
                       />
                     </View>
-                    <Text style={styles.progressText}>{exportMessage}</Text>
+                    <Text style={styles.progressText}>{exportProgress.message}</Text>
                   </View>
                 </View>
               ) : exportResult ? (
@@ -232,19 +194,25 @@ const DocumentsScreen: React.FC<DocumentsScreenProps> = ({ navigation }) => {
                   
                   <View style={styles.modalBody}>
                     <Text style={styles.modalText}>
-                      "{selectedDoc}" has been successfully exported to Google Docs with formatting preserved.
+                      "{selectedDoc}" has been successfully exported to Google Docs with formatting preserved from your markdown.
                     </Text>
                     
                     {exportResult && (
                       <View style={styles.docInfoContainer}>
-                        <Text style={styles.docInfoLabel}>Document ID:</Text>
+                        <Text style={styles.docInfoLabel}>Document:</Text>
+                        <Text style={styles.docInfoValue}>{selectedDoc}</Text>
+                        
+                        <Text style={styles.docInfoLabel}>Formatting Applied:</Text>
                         <Text style={styles.docInfoValue}>
-                          {exportResult.document_id?.substring(0, 12)}...
+                          {exportResult.markdown_converted ? 'Markdown → Rich Text' : 'Basic'}
                         </Text>
-                        {exportResult.formatted && (
+                        
+                        {exportResult.document_id && (
                           <>
-                            <Text style={styles.docInfoLabel}>Formatting:</Text>
-                            <Text style={styles.docInfoValue}>Applied</Text>
+                            <Text style={styles.docInfoLabel}>Document ID:</Text>
+                            <Text style={styles.docInfoValue}>
+                              {exportResult.document_id.substring(0, 12)}...
+                            </Text>
                           </>
                         )}
                       </View>
@@ -288,20 +256,20 @@ const DocumentsScreen: React.FC<DocumentsScreenProps> = ({ navigation }) => {
             </Text>
           </ScrollView>
           
-          {/* Enhanced export button with progress */}
+          {/* FIXED: Use exportProgress.isExporting instead of local isExporting */}
           <TouchableOpacity 
             style={[
               isConnected ? styles.googleDocButton : styles.googleDocButtonDisabled,
-              isExporting && styles.googleDocButtonExporting
+              exportProgress.isExporting && styles.googleDocButtonExporting
             ]} 
             onPress={handleExportToGoogle}
-            disabled={!isConnected || isExporting}
+            disabled={!isConnected || exportProgress.isExporting}
           >
             <LinearGradient
               colors={
                 !isConnected 
                   ? ['#9ca3af', '#6b7280']
-                  : isExporting 
+                  : exportProgress.isExporting 
                     ? ['#93c5fd', '#60a5fa'] 
                     : ['#4285f4', '#1a73e8']
               }
@@ -309,14 +277,16 @@ const DocumentsScreen: React.FC<DocumentsScreenProps> = ({ navigation }) => {
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 0 }}
             >
-              {isExporting ? (
+              {exportProgress.isExporting ? (
                 <ActivityIndicator color="#fff" size="small" />
               ) : (
                 <Ionicons name="logo-google" size={20} color="#fff" />
               )}
               <Text style={styles.googleDocButtonText}>
-                {isExporting ? `Exporting... ${exportProgress}%` : 
-                 isConnected ? 'Export to Google Docs' : 'Connect Google to Export'}
+                {exportProgress.isExporting ? 
+                  `Exporting... ${exportProgress.progress}%` : 
+                  isConnected ? 'Export to Google Docs' : 'Connect Google to Export'
+                }
               </Text>
             </LinearGradient>
           </TouchableOpacity>
@@ -325,7 +295,7 @@ const DocumentsScreen: React.FC<DocumentsScreenProps> = ({ navigation }) => {
     );
   }
 
-  // Keep your existing document list view unchanged
+  // Document list view - unchanged
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.pageContainer}>

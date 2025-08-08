@@ -1,4 +1,4 @@
-// src/hooks/useGoogleAuth.ts - Cross-platform for Mobile & Expo Web
+// src/hooks/useGoogleAuth.ts - Updated for new formatted endpoints
 import { useState, useEffect } from 'react';
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -8,20 +8,45 @@ import * as Linking from 'expo-linking';
 // Complete the auth session for web
 WebBrowser.maybeCompleteAuthSession();
 
+interface ExportProgress {
+  progress: number;
+  message: string;
+  isExporting: boolean;
+}
+
+interface ExportResult {
+  success: boolean;
+  document_id?: string;
+  document_url?: string;
+  title?: string;
+  formatted?: boolean;
+  markdown_converted?: boolean;
+  message?: string;
+  error?: string;
+}
+
 interface UseGoogleAuthReturn {
   isConnected: boolean;
   isLoading: boolean;
   userInfo: any;
+  exportProgress: ExportProgress;
   connectGoogle: () => Promise<string | void>;
   disconnectGoogle: () => Promise<boolean>;
   checkStatus: () => Promise<void>;
-  pushToGoogleDrive: (title: string, content: string) => Promise<boolean>;
+  // Updated method names and functionality
+  exportToGoogleDocs: (title: string, content: string) => Promise<ExportResult>;
+  generateDocument: (documentName: string) => Promise<{ success: boolean; content?: string; error?: string }>;
 }
 
 export const useGoogleAuth = (): UseGoogleAuthReturn => {
   const [isConnected, setIsConnected] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [userInfo, setUserInfo] = useState(null);
+  const [exportProgress, setExportProgress] = useState<ExportProgress>({
+    progress: 0,
+    message: '',
+    isExporting: false
+  });
 
   // Get API base URL from environment variables
   const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:8000';
@@ -172,43 +197,156 @@ export const useGoogleAuth = (): UseGoogleAuthReturn => {
     }
   };
 
-  const pushToGoogleDrive = async (title: string, content: string): Promise<boolean> => {
+  // NEW: Generate document using server-side AI (secure)
+  const generateDocument = async (documentName: string): Promise<{ success: boolean; content?: string; error?: string }> => {
     try {
       const token = await getToken();
       if (!token) {
-        console.error('No auth token available');
-        return false;
+        return { success: false, error: 'No auth token available' };
       }
 
-      if (!isConnected) {
-        console.error('Google account not connected');
-        return false;
-      }
+      console.log('Generating document:', documentName);
 
-      const response = await fetch(`${API_BASE_URL}/google/drive/create-doc`, {
+      const response = await fetch(`${API_BASE_URL}/api/documents/generate`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ 
-          title: title,
-          content: content 
+        body: JSON.stringify({
+          document_name: documentName.trim(),
+          user_id: userInfo?.id || 'anonymous'
         }),
       });
 
       if (response.ok) {
-        console.log('Document pushed to Google Drive successfully');
-        return true;
+        const result = await response.json();
+        console.log('Document generated successfully');
+        return {
+          success: true,
+          content: result.content
+        };
       } else {
         const errorData = await response.json().catch(() => ({}));
-        console.error('Failed to push to Google Drive:', errorData);
-        return false;
+        console.error('Failed to generate document:', errorData);
+        return {
+          success: false,
+          error: errorData.detail || 'Failed to generate document'
+        };
       }
 
     } catch (error) {
-      console.error('Error pushing to Google Drive:', error);
-      return false;
+      console.error('Error generating document:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error occurred'
+      };
+    }
+  };
+
+  // UPDATED: Export to Google Docs with formatting (replaces pushToGoogleDrive)
+  const exportToGoogleDocs = async (title: string, content: string): Promise<ExportResult> => {
+    try {
+      const token = await getToken();
+      if (!token) {
+        return { success: false, error: 'No auth token available' };
+      }
+
+      if (!isConnected) {
+        return { success: false, error: 'Google account not connected' };
+      }
+
+      // Start export process with progress tracking
+      setExportProgress({
+        progress: 0,
+        message: 'Preparing document for export...',
+        isExporting: true
+      });
+
+      console.log('Exporting document to Google Docs:', title);
+
+      // Simulate progress updates
+      const updateProgress = (progress: number, message: string) => {
+        setExportProgress({
+          progress,
+          message,
+          isExporting: true
+        });
+      };
+
+      updateProgress(25, 'Converting markdown to Google Docs format...');
+
+      // Call the NEW formatted endpoint instead of old /google/drive/create-doc
+      const response = await fetch(`${API_BASE_URL}/api/google/create-formatted-doc`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          title: title,
+          content: content,
+          format: true,
+          preserve_markdown: true
+        }),
+      });
+
+      updateProgress(75, 'Creating document in Google Drive...');
+
+      if (response.ok) {
+        const result = await response.json();
+        
+        updateProgress(100, 'Export completed successfully!');
+        
+        // Reset progress after a short delay
+        setTimeout(() => {
+          setExportProgress({
+            progress: 0,
+            message: '',
+            isExporting: false
+          });
+        }, 1000);
+
+        console.log('Document exported to Google Docs successfully:', result);
+        
+        return {
+          success: true,
+          document_id: result.document_id,
+          document_url: result.document_url,
+          title: result.title,
+          formatted: result.formatted,
+          markdown_converted: result.markdown_converted,
+          message: result.message
+        };
+      } else {
+        const errorData = await response.json().catch(() => ({}));
+        console.error('Failed to export to Google Docs:', errorData);
+        
+        setExportProgress({
+          progress: 0,
+          message: '',
+          isExporting: false
+        });
+
+        return {
+          success: false,
+          error: errorData.detail || 'Failed to export to Google Docs'
+        };
+      }
+
+    } catch (error) {
+      console.error('Error exporting to Google Docs:', error);
+      
+      setExportProgress({
+        progress: 0,
+        message: '',
+        isExporting: false
+      });
+
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error occurred'
+      };
     }
   };
 
@@ -249,6 +387,11 @@ export const useGoogleAuth = (): UseGoogleAuthReturn => {
   useEffect(() => {
     return () => {
       setIsLoading(false);
+      setExportProgress({
+        progress: 0,
+        message: '',
+        isExporting: false
+      });
     };
   }, []);
 
@@ -256,9 +399,11 @@ export const useGoogleAuth = (): UseGoogleAuthReturn => {
     isConnected,
     isLoading,
     userInfo,
+    exportProgress,
     connectGoogle,
     disconnectGoogle,
     checkStatus,
-    pushToGoogleDrive,
+    exportToGoogleDocs, // Renamed from pushToGoogleDrive
+    generateDocument, // New method for secure document generation
   };
 };
