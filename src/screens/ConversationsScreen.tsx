@@ -51,13 +51,7 @@ const ConversationsScreen: React.FC<ConversationsScreenProps> = ({ navigation })
   };
 
   const startNewConversation = async () => {
-    try {
-      const conversationId = await chatService.createNewConversation();
-      navigation.navigate('Chat', { conversationId, isNew: true });
-    } catch (error) {
-      console.error('Error creating conversation:', error);
-      Alert.alert('Error', 'Failed to create new conversation');
-    }
+    navigation.navigate('Chat', { isNew: true });
   };
 
   const deleteConversation = async (conversationId: string) => {
