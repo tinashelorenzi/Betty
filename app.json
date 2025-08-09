@@ -9,7 +9,7 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "splash": {
-      "image": "./assets/splash.png",
+      "image": "./assets/images/logo.png",
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
@@ -23,7 +23,9 @@
         "CFBundleURLTypes": [
           {
             "CFBundleURLName": "betty-oauth",
-            "CFBundleURLSchemes": ["betty"]
+            "CFBundleURLSchemes": [
+              "betty"
+            ]
           }
         ]
       }
@@ -43,7 +45,10 @@
               "scheme": "betty"
             }
           ],
-          "category": ["BROWSABLE", "DEFAULT"]
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
         }
       ]
     },
@@ -52,7 +57,10 @@
     },
     "extra": {
       "googleClientId": "1092345143344-jv2v1ke2e01f4k73peuhjuq5kn5ocr6j.apps.googleusercontent.com",
-      "apiBaseUrl": "http://10.0.0.166:8000"
+      "apiBaseUrl": "http://10.0.0.166:8000",
+      "eas": {
+        "projectId": "b793f9b9-eb2a-44c3-a453-418d29d6249f"
+      }
     }
   }
 }
