@@ -1,4 +1,4 @@
-// src/navigation/AppNavigator.tsx - Updated with DocumentView Screen
+// src/navigation/AppNavigator.tsx - Fixed Navigation Structure
 import React from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
@@ -16,7 +16,8 @@ import RegisterScreen from '../screens/RegisterScreen';
 import HomeScreen from '../screens/HomeScreen';
 import AssistantScreen from '../screens/AssistantScreen';
 import DocumentsScreen from '../screens/DocumentsScreen';
-import PlannerScreen from '../screens/PlannerScreen';
+import PlannerScreen from '../screens/PlannerScreen'; // This now uses EnhancedPlannerScreen
+import EnhancedPlannerScreen from '../screens/EnhancedPlannerScreen'; // Direct import for future use
 import ProfileScreen from '../screens/ProfileScreen';
 import SettingsScreen from '../screens/SettingsScreen';
 import NotificationSettingsScreen from '../screens/NotificationSettingsScreen';
@@ -40,7 +41,8 @@ export type RootStackParamList = {
   EditProfile: undefined;
   Auth: undefined;
   Splash: undefined;
-  Planner: undefined; // Add this
+  Planner: undefined;
+  EnhancedPlanner: undefined; // Add enhanced planner route
   // Chat screens
   Conversations: undefined;
   Chat: {
@@ -84,6 +86,7 @@ export type RegisterScreenNavigationProp = StackNavigationProp<RootStackParamLis
 export type AuthScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Auth'>;
 export type ProfileScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Profile'>;
 export type SettingsScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Settings'>;
+export type PlannerScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Planner'>;
 
 const Stack = createStackNavigator<RootStackParamList>();
 const Tab = createBottomTabNavigator<MainTabParamList>();
@@ -132,7 +135,7 @@ const AuthStackNavigator: React.FC = () => (
   </Stack.Navigator>
 );
 
-// Main App Navigator - Updated with DocumentView
+// Main App Navigator - Fixed Structure
 const AppNavigator: React.FC = () => {
   const { user, loading } = useAuth();
 
@@ -142,76 +145,59 @@ const AppNavigator: React.FC = () => {
         screenOptions={{
           headerShown: false,
         }}
+        initialRouteName="Splash"
       >
+        {/* Always available screens - these are the base level */}
+        <Stack.Screen name="Splash" component={SplashScreen} />
+        <Stack.Screen name="AuthLoading" component={AuthLoadingScreen} />
+        
         {loading ? (
-          <Stack.Screen name="AuthLoading" component={AuthLoadingScreen} />
+          // While checking auth status, show loading
+          null // AuthLoading is already available above
         ) : user ? (
+          // Authenticated user screens
           <>
-            {/* Main app with tabs */}
             <Stack.Screen name="MainApp" component={MainTabNavigator} />
-            
-            {/* Chat screens - modal-style */}
             <Stack.Screen 
               name="Conversations" 
               component={ConversationsScreen}
               options={{
-                headerShown: false,
-                presentation: 'modal',
+                headerShown: true,
+                title: 'Conversations',
+                headerBackTitleVisible: false,
               }}
             />
             <Stack.Screen 
               name="Chat" 
               component={ChatScreen}
               options={{
-                headerShown: false,
-                presentation: 'modal',
+                headerShown: true,
+                title: 'Betty Assistant',
+                headerBackTitleVisible: false,
               }}
             />
-            
-            {/* Document View Screen - full screen modal */}
             <Stack.Screen 
               name="DocumentView" 
               component={DocumentViewScreen}
               options={{
-                headerShown: false,
-                presentation: 'modal',
-                gestureEnabled: true,
-              }}
-            />
-            
-            {/* Settings screens - modal-style */}
-            <Stack.Screen 
-              name="Settings" 
-              component={SettingsScreen}
-              options={{
-                headerShown: false,
-                presentation: 'modal',
+                headerShown: true,
+                title: 'Document',
+                headerBackTitleVisible: false,
               }}
             />
             <Stack.Screen 
-              name="NotificationSettings" 
-              component={NotificationSettingsScreen}
+              name="EnhancedPlanner" 
+              component={EnhancedPlannerScreen}
               options={{
-                headerShown: false,
-                presentation: 'modal',
-              }}
-            />
-            <Stack.Screen 
-              name="EditProfile" 
-              component={EditProfileScreen}
-              options={{
-                headerShown: false,
-                presentation: 'modal',
+                headerShown: true,
+                title: 'Enhanced Planner',
+                headerBackTitleVisible: false,
               }}
             />
           </>
         ) : (
-          <>
-            {/* Auth flow */}
-            <Stack.Screen name="Splash" component={SplashScreen} />
-            <Stack.Screen name="Auth" component={AuthStackNavigator} />
-            <Stack.Screen name="AuthLoading" component={AuthLoadingScreen} />
-          </>
+          // Unauthenticated user screens
+          <Stack.Screen name="Auth" component={AuthStackNavigator} />
         )}
       </Stack.Navigator>
     </NavigationContainer>

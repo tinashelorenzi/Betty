@@ -1,4 +1,4 @@
-// src/screens/AuthLoadingScreen.tsx
+// src/screens/AuthLoadingScreen.tsx - Fixed Navigation
 import React, { useEffect } from 'react';
 import {
   View,
@@ -28,10 +28,12 @@ const AuthLoadingScreen: React.FC<AuthLoadingScreenProps> = ({ navigation }) => 
     // Wait for auth check to complete, then navigate
     if (!loading) {
       const timer = setTimeout(() => {
-        navigation.reset({
-          index: 0,
-          routes: [{ name: isAuthenticated ? 'MainApp' : 'Auth' }],
-        });
+        // Use replace instead of reset to avoid navigation warnings
+        if (isAuthenticated) {
+          navigation.replace('MainApp');
+        } else {
+          navigation.replace('Auth');
+        }
       }, 1000); // Small delay for better UX
 
       return () => clearTimeout(timer);

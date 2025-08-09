@@ -12,12 +12,27 @@ import {
   Alert,
   RefreshControl,
   ActivityIndicator,
+  FlatList,
+  Dimensions,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as Animatable from 'react-native-animatable';
 
-import { taskService, Task, TaskPriority, TaskStatus, QuickTaskCreate, TaskCreate, PlannerDashboard } from '../services/taskService';
+import { 
+  taskService, 
+  Task, 
+  TaskPriority, 
+  TaskStatus, 
+  QuickTaskCreate, 
+  TaskCreate, 
+  PlannerDashboard,
+  Note,
+  NoteCreate,
+  CalendarEvent
+} from '../services/taskService';
+
+const { width } = Dimensions.get('window');
 
 // ============================================================================
 // INTERFACES
@@ -38,8 +53,661 @@ interface CalendarDayProps {
   onPress: (day: number) => void;
 }
 
+interface NoteItemProps {
+  note: Note;
+  onEdit: (note: Note) => void;
+  onDelete: (noteId: string) => void;
+}
+
 // ============================================================================
-// COMPONENTS
+// MAIN COMPONENT
+// ============================================================================
+
+const EnhancedPlannerScreen: React.FC = () => {
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'tasks' | 'calendar' | 'notes'>('dashboard');
+  const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [dashboard, setDashboard] = useState<PlannerDashboard | null>(null);
+
+  // Task states
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [showTaskModal, setShowTaskModal] = useState(false);
+  const [editingTask, setEditingTask] = useState<Task | null>(null);
+
+  // Note states
+  const [notes, setNotes] = useState<Note[]>([]);
+  const [showNoteModal, setShowNoteModal] = useState(false);
+  const [editingNote, setEditingNote] = useState<Note | null>(null);
+
+  // Calendar states
+  const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
+  const [selectedDate, setSelectedDate] = useState(new Date());
+
+  useEffect(() => {
+    loadInitialData();
+  }, []);
+
+  const loadInitialData = async () => {
+    setLoading(true);
+    try {
+      await Promise.all([
+        loadDashboard(),
+        loadTasks(),
+        loadNotes(),
+        loadCalendarEvents()
+      ]);
+    } catch (error) {
+      console.error('Error loading planner data:', error);
+      Alert.alert('Error', 'Failed to load planner data');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await loadInitialData();
+    setRefreshing(false);
+  }, []);
+
+  // ============================================================================
+  // DATA LOADING METHODS
+  // ============================================================================
+
+  const loadDashboard = async () => {
+    try {
+      const dashboardData = await taskService.getPlannerDashboard();
+      setDashboard(dashboardData);
+    } catch (error) {
+      console.error('Error loading dashboard:', error);
+    }
+  };
+
+  const loadTasks = async () => {
+    try {
+      const tasksData = await taskService.getTasks();
+      setTasks(tasksData);
+    } catch (error) {
+      console.error('Error loading tasks:', error);
+    }
+  };
+
+  const loadNotes = async () => {
+    try {
+      const notesData = await taskService.getNotes();
+      setNotes(notesData);
+    } catch (error) {
+      console.error('Error loading notes:', error);
+    }
+  };
+
+  const loadCalendarEvents = async () => {
+    try {
+      const startDate = new Date();
+      const endDate = new Date();
+      endDate.setDate(endDate.getDate() + 30);
+      
+      const events = await taskService.getCalendarEvents(
+        startDate.toISOString().split('T')[0],
+        endDate.toISOString().split('T')[0]
+      );
+      setCalendarEvents(events);
+    } catch (error) {
+      console.error('Error loading calendar events:', error);
+    }
+  };
+
+  // ============================================================================
+  // TASK METHODS
+  // ============================================================================
+
+  const handleToggleTask = async (taskId: string) => {
+    try {
+      const updatedTask = await taskService.toggleTaskStatus(taskId);
+      setTasks(tasks.map(task => task.id === taskId ? updatedTask : task));
+      await loadDashboard(); // Refresh dashboard stats
+    } catch (error) {
+      console.error('Error toggling task:', error);
+      Alert.alert('Error', 'Failed to update task');
+    }
+  };
+
+  const handleEditTask = (task: Task) => {
+    setEditingTask(task);
+    setShowTaskModal(true);
+  };
+
+  const handleDeleteTask = async (taskId: string) => {
+    Alert.alert(
+      'Delete Task',
+      'Are you sure you want to delete this task?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await taskService.deleteTask(taskId);
+              setTasks(tasks.filter(task => task.id !== taskId));
+              await loadDashboard();
+            } catch (error) {
+              console.error('Error deleting task:', error);
+              Alert.alert('Error', 'Failed to delete task');
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  // ============================================================================
+  // NOTE METHODS
+  // ============================================================================
+
+  const handleEditNote = (note: Note) => {
+    setEditingNote(note);
+    setShowNoteModal(true);
+  };
+
+  const handleDeleteNote = async (noteId: string) => {
+    Alert.alert(
+      'Delete Note',
+      'Are you sure you want to delete this note?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await taskService.deleteNote(noteId);
+              setNotes(notes.filter(note => note.id !== noteId));
+            } catch (error) {
+              console.error('Error deleting note:', error);
+              Alert.alert('Error', 'Failed to delete note');
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  // ============================================================================
+  // RENDER METHODS
+  // ============================================================================
+
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#2563EB" />
+        <Text style={styles.loadingText}>Loading planner...</Text>
+      </View>
+    );
+  }
+
+  return (
+    <SafeAreaView style={styles.container}>
+      <LinearGradient colors={['#2563EB', '#3B82F6']} style={styles.header}>
+        <Text style={styles.headerTitle}>Enhanced Planner</Text>
+        <TouchableOpacity 
+          style={styles.syncButton}
+          onPress={async () => {
+            try {
+              await taskService.syncTasksWithCalendar();
+              Alert.alert('Success', 'Synced with Google Calendar');
+            } catch (error) {
+              Alert.alert('Error', 'Failed to sync with calendar');
+            }
+          }}
+        >
+          <Ionicons name="sync" size={20} color="white" />
+        </TouchableOpacity>
+      </LinearGradient>
+
+      {/* Tab Navigation */}
+      <View style={styles.tabContainer}>
+        {[
+          { key: 'dashboard', label: 'Dashboard', icon: 'analytics' },
+          { key: 'tasks', label: 'Tasks', icon: 'checkbox' },
+          { key: 'calendar', label: 'Calendar', icon: 'calendar' },
+          { key: 'notes', label: 'Notes', icon: 'document-text' }
+        ].map((tab) => (
+          <TouchableOpacity
+            key={tab.key}
+            style={[styles.tab, activeTab === tab.key && styles.activeTab]}
+            onPress={() => setActiveTab(tab.key as any)}
+          >
+            <Ionicons 
+              name={tab.icon as any} 
+              size={20} 
+              color={activeTab === tab.key ? '#2563EB' : '#6B7280'} 
+            />
+            <Text style={[
+              styles.tabText, 
+              activeTab === tab.key && styles.activeTabText
+            ]}>
+              {tab.label}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
+      {/* Content */}
+      <ScrollView 
+        style={styles.content}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
+      >
+        {activeTab === 'dashboard' && <DashboardTab dashboard={dashboard} />}
+        {activeTab === 'tasks' && (
+          <TasksTab 
+            tasks={tasks} 
+            onToggle={handleToggleTask}
+            onEdit={handleEditTask}
+            onDelete={handleDeleteTask}
+            onCreateNew={() => {
+              setEditingTask(null);
+              setShowTaskModal(true);
+            }}
+          />
+        )}
+        {activeTab === 'calendar' && (
+          <CalendarTab 
+            events={calendarEvents}
+            selectedDate={selectedDate}
+            onDateSelect={setSelectedDate}
+          />
+        )}
+        {activeTab === 'notes' && (
+          <NotesTab 
+            notes={notes}
+            onEdit={handleEditNote}
+            onDelete={handleDeleteNote}
+            onCreateNew={() => {
+              setEditingNote(null);
+              setShowNoteModal(true);
+            }}
+          />
+        )}
+      </ScrollView>
+
+      {/* Modals */}
+      <TaskModal 
+        visible={showTaskModal}
+        task={editingTask}
+        onClose={() => {
+          setShowTaskModal(false);
+          setEditingTask(null);
+        }}
+        onSave={async (taskData) => {
+          try {
+            if (editingTask) {
+              const updatedTask = await taskService.updateTask(editingTask.id, taskData);
+              setTasks(tasks.map(t => t.id === editingTask.id ? updatedTask : t));
+            } else {
+              const newTask = await taskService.createTask(taskData as TaskCreate);
+              setTasks([...tasks, newTask]);
+            }
+            await loadDashboard();
+            setShowTaskModal(false);
+            setEditingTask(null);
+          } catch (error) {
+            console.error('Error saving task:', error);
+            Alert.alert('Error', 'Failed to save task');
+          }
+        }}
+      />
+
+      <NoteModal 
+        visible={showNoteModal}
+        note={editingNote}
+        onClose={() => {
+          setShowNoteModal(false);
+          setEditingNote(null);
+        }}
+        onSave={async (noteData) => {
+          try {
+            if (editingNote) {
+              const updatedNote = await taskService.updateNote(editingNote.id, noteData);
+              setNotes(notes.map(n => n.id === editingNote.id ? updatedNote : n));
+            } else {
+              const newNote = await taskService.createNote(noteData);
+              setNotes([...notes, newNote]);
+            }
+            setShowNoteModal(false);
+            setEditingNote(null);
+          } catch (error) {
+            console.error('Error saving note:', error);
+            Alert.alert('Error', 'Failed to save note');
+          }
+        }}
+      />
+    </SafeAreaView>
+  );
+};
+
+// ============================================================================
+// TAB COMPONENTS
+// ============================================================================
+
+const DashboardTab: React.FC<{ dashboard: PlannerDashboard | null }> = ({ dashboard }) => {
+  if (!dashboard) {
+    return (
+      <View style={styles.emptyState}>
+        <Text style={styles.emptyStateText}>Loading dashboard...</Text>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.dashboardContainer}>
+      {/* Quick Stats */}
+      <View style={styles.statsGrid}>
+        <StatsCard 
+          title="Total Tasks" 
+          value={dashboard.tasks.total.toString()}
+          subtitle={`${dashboard.tasks.completed} completed`}
+          color="#3B82F6"
+        />
+        <StatsCard 
+          title="Completion Rate" 
+          value={`${Math.round(dashboard.productivity.completion_rate)}%`}
+          subtitle="This week"
+          color="#10B981"
+        />
+        <StatsCard 
+          title="Today's Tasks" 
+          value={dashboard.productivity.tasks_completed_today.toString()}
+          subtitle="Completed"
+          color="#F59E0B"
+        />
+        <StatsCard 
+          title="Streak" 
+          value={`${dashboard.productivity.streak_days}`}
+          subtitle="Days"
+          color="#8B5CF6"
+        />
+      </View>
+
+      {/* Recent Notes */}
+      {dashboard.notes.recent.length > 0 && (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Recent Notes</Text>
+          {dashboard.notes.recent.slice(0, 3).map((note) => (
+            <View key={note.id} style={styles.recentNoteItem}>
+              <Text style={styles.recentNoteTitle}>{note.title}</Text>
+              <Text style={styles.recentNoteContent} numberOfLines={2}>
+                {note.content}
+              </Text>
+              <Text style={styles.recentNoteDate}>
+                {taskService.formatDate(note.updated_at)}
+              </Text>
+            </View>
+          ))}
+        </View>
+      )}
+
+      {/* Upcoming Events */}
+      {dashboard.calendar.upcoming_events.length > 0 && (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Upcoming Events</Text>
+          {dashboard.calendar.upcoming_events.slice(0, 3).map((event) => (
+            <View key={event.id} style={styles.upcomingEventItem}>
+              <View style={styles.eventTimeContainer}>
+                <Text style={styles.eventTime}>
+                  {new Date(event.start_time).toLocaleTimeString([], { 
+                    hour: '2-digit', 
+                    minute: '2-digit' 
+                  })}
+                </Text>
+              </View>
+              <View style={styles.eventDetails}>
+                <Text style={styles.eventTitle}>{event.title}</Text>
+                {event.location && (
+                  <Text style={styles.eventLocation}>{event.location}</Text>
+                )}
+              </View>
+            </View>
+          ))}
+        </View>
+      )}
+    </View>
+  );
+};
+
+const TasksTab: React.FC<{
+  tasks: Task[];
+  onToggle: (taskId: string) => void;
+  onEdit: (task: Task) => void;
+  onDelete: (taskId: string) => void;
+  onCreateNew: () => void;
+}> = ({ tasks, onToggle, onEdit, onDelete, onCreateNew }) => {
+  const [filter, setFilter] = useState<'all' | 'pending' | 'completed'>('all');
+
+  const filteredTasks = tasks.filter(task => {
+    if (filter === 'pending') return task.status !== TaskStatus.COMPLETED;
+    if (filter === 'completed') return task.status === TaskStatus.COMPLETED;
+    return true;
+  });
+
+  return (
+    <View style={styles.tasksContainer}>
+      {/* Filter Buttons */}
+      <View style={styles.filterContainer}>
+        {['all', 'pending', 'completed'].map((filterType) => (
+          <TouchableOpacity
+            key={filterType}
+            style={[
+              styles.filterButton,
+              filter === filterType && styles.activeFilterButton
+            ]}
+            onPress={() => setFilter(filterType as any)}
+          >
+            <Text style={[
+              styles.filterButtonText,
+              filter === filterType && styles.activeFilterButtonText
+            ]}>
+              {filterType.charAt(0).toUpperCase() + filterType.slice(1)}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
+      {/* Add Task Button */}
+      <TouchableOpacity style={styles.addButton} onPress={onCreateNew}>
+        <Ionicons name="add" size={24} color="white" />
+        <Text style={styles.addButtonText}>Add Task</Text>
+      </TouchableOpacity>
+
+      {/* Tasks List */}
+      <FlatList
+        data={filteredTasks}
+        keyExtractor={(item) => item.id}
+        renderItem={({ item }) => (
+          <TaskItem 
+            task={item} 
+            onToggle={onToggle}
+            onEdit={onEdit}
+            onDelete={onDelete}
+          />
+        )}
+        showsVerticalScrollIndicator={false}
+        ListEmptyComponent={
+          <View style={styles.emptyState}>
+            <Ionicons name="checkbox-outline" size={48} color="#D1D5DB" />
+            <Text style={styles.emptyStateText}>No tasks found</Text>
+            <Text style={styles.emptyStateSubtext}>
+              Create your first task to get started
+            </Text>
+          </View>
+        }
+      />
+    </View>
+  );
+};
+
+const CalendarTab: React.FC<{
+  events: CalendarEvent[];
+  selectedDate: Date;
+  onDateSelect: (date: Date) => void;
+}> = ({ events, selectedDate, onDateSelect }) => {
+  const today = new Date();
+  const daysInMonth = new Date(selectedDate.getFullYear(), selectedDate.getMonth() + 1, 0).getDate();
+  const firstDayOfMonth = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1).getDay();
+
+  const eventsForSelectedDate = events.filter(event => {
+    const eventDate = new Date(event.start_time);
+    return eventDate.toDateString() === selectedDate.toDateString();
+  });
+
+  return (
+    <View style={styles.calendarContainer}>
+      {/* Calendar Header */}
+      <View style={styles.calendarHeader}>
+        <TouchableOpacity
+          onPress={() => {
+            const prevMonth = new Date(selectedDate);
+            prevMonth.setMonth(prevMonth.getMonth() - 1);
+            onDateSelect(prevMonth);
+          }}
+        >
+          <Ionicons name="chevron-back" size={24} color="#2563EB" />
+        </TouchableOpacity>
+        
+        <Text style={styles.calendarTitle}>
+          {selectedDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+        </Text>
+        
+        <TouchableOpacity
+          onPress={() => {
+            const nextMonth = new Date(selectedDate);
+            nextMonth.setMonth(nextMonth.getMonth() + 1);
+            onDateSelect(nextMonth);
+          }}
+        >
+          <Ionicons name="chevron-forward" size={24} color="#2563EB" />
+        </TouchableOpacity>
+      </View>
+
+      {/* Day Headers */}
+      <View style={styles.dayHeadersContainer}>
+        {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => (
+          <Text key={day} style={styles.dayHeader}>{day}</Text>
+        ))}
+      </View>
+
+      {/* Calendar Grid */}
+      <View style={styles.calendarGrid}>
+        {/* Empty cells for days before the first day of the month */}
+        {Array.from({ length: firstDayOfMonth }, (_, i) => (
+          <View key={`empty-${i}`} style={styles.calendarDay} />
+        ))}
+        
+        {/* Days of the month */}
+        {Array.from({ length: daysInMonth }, (_, i) => {
+          const day = i + 1;
+          const date = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), day);
+          const isToday = date.toDateString() === today.toDateString();
+          const isSelected = date.toDateString() === selectedDate.toDateString();
+          const hasEvents = events.some(event => {
+            const eventDate = new Date(event.start_time);
+            return eventDate.toDateString() === date.toDateString();
+          });
+
+          return (
+            <CalendarDay
+              key={day}
+              day={day}
+              isToday={isToday}
+              isSelected={isSelected}
+              hasEvents={hasEvents}
+              onPress={() => onDateSelect(date)}
+            />
+          );
+        })}
+      </View>
+
+      {/* Events for Selected Date */}
+      <View style={styles.selectedDateEvents}>
+        <Text style={styles.selectedDateTitle}>
+          Events for {selectedDate.toLocaleDateString()}
+        </Text>
+        {eventsForSelectedDate.length > 0 ? (
+          eventsForSelectedDate.map((event) => (
+            <View key={event.id} style={styles.eventItem}>
+              <View style={styles.eventTimeContainer}>
+                <Text style={styles.eventTime}>
+                  {new Date(event.start_time).toLocaleTimeString([], { 
+                    hour: '2-digit', 
+                    minute: '2-digit' 
+                  })}
+                </Text>
+              </View>
+              <View style={styles.eventDetails}>
+                <Text style={styles.eventTitle}>{event.title}</Text>
+                {event.description && (
+                  <Text style={styles.eventDescription}>{event.description}</Text>
+                )}
+                {event.location && (
+                  <Text style={styles.eventLocation}>{event.location}</Text>
+                )}
+              </View>
+            </View>
+          ))
+        ) : (
+          <View style={styles.noEventsContainer}>
+            <Text style={styles.noEventsText}>No events for this date</Text>
+          </View>
+        )}
+      </View>
+    </View>
+  );
+};
+
+const NotesTab: React.FC<{
+  notes: Note[];
+  onEdit: (note: Note) => void;
+  onDelete: (noteId: string) => void;
+  onCreateNew: () => void;
+}> = ({ notes, onEdit, onDelete, onCreateNew }) => {
+  return (
+    <View style={styles.notesContainer}>
+      {/* Add Note Button */}
+      <TouchableOpacity style={styles.addButton} onPress={onCreateNew}>
+        <Ionicons name="add" size={24} color="white" />
+        <Text style={styles.addButtonText}>Add Note</Text>
+      </TouchableOpacity>
+
+      {/* Notes List */}
+      <FlatList
+        data={notes}
+        keyExtractor={(item) => item.id}
+        renderItem={({ item }) => (
+          <NoteItem 
+            note={item} 
+            onEdit={onEdit}
+            onDelete={onDelete}
+          />
+        )}
+        showsVerticalScrollIndicator={false}
+        ListEmptyComponent={
+          <View style={styles.emptyState}>
+            <Ionicons name="document-text-outline" size={48} color="#D1D5DB" />
+            <Text style={styles.emptyStateText}>No notes found</Text>
+            <Text style={styles.emptyStateSubtext}>
+              Create your first note to get started
+            </Text>
+          </View>
+        }
+      />
+    </View>
+  );
+};
+
+// ============================================================================
+// ITEM COMPONENTS
 // ============================================================================
 
 const TaskItem: React.FC<TaskItemProps> = ({ task, onToggle, onEdit, onDelete }) => {
@@ -55,7 +723,7 @@ const TaskItem: React.FC<TaskItemProps> = ({ task, onToggle, onEdit, onDelete })
   const getStatusColor = () => taskService.getStatusColor(task.status);
 
   const isCompleted = task.status === TaskStatus.COMPLETED;
-  const isOverdue = task.due_date && new Date(task.due_date) < new Date() && !isCompleted;
+  const isOverdue = task.due_date && taskService.isOverdue(task.due_date) && !isCompleted;
 
   return (
     <Animatable.View animation="fadeInUp" style={styles.taskItem}>
@@ -71,17 +739,16 @@ const TaskItem: React.FC<TaskItemProps> = ({ task, onToggle, onEdit, onDelete })
             ]}
           >
             {isLoading ? (
-              <ActivityIndicator size="small" color="#fff" />
-            ) : (
-              isCompleted && <Ionicons name="checkmark" size={16} color="white" />
-            )}
+              <ActivityIndicator size="small" color={getPriorityColor()} />
+            ) : isCompleted ? (
+              <Ionicons name="checkmark" size={16} color="white" />
+            ) : null}
           </TouchableOpacity>
           
           <View style={styles.taskInfo}>
             <Text style={[
-              styles.taskTitle, 
-              isCompleted && styles.taskTitleCompleted,
-              isOverdue && styles.taskOverdue
+              styles.taskTitle,
+              isCompleted && styles.taskTitleCompleted
             ]}>
               {task.title}
             </Text>
@@ -92,123 +759,169 @@ const TaskItem: React.FC<TaskItemProps> = ({ task, onToggle, onEdit, onDelete })
               </Text>
             )}
             
-            <View style={styles.taskMeta}>
+            <View style={styles.taskMetadata}>
               <View style={[styles.priorityBadge, { backgroundColor: getPriorityColor() }]}>
-                <Text style={styles.priorityText}>{task.priority.toUpperCase()}</Text>
+                <Text style={styles.priorityText}>
+                  {taskService.getPriorityLabel(task.priority)}
+                </Text>
               </View>
               
               {task.due_date && (
-                <Text style={[styles.taskTime, isOverdue && styles.taskOverdueText]}>
-                  {taskService.formatDateForDisplay(task.due_date)}
-                  {task.due_date.includes('T') && ' • ' + taskService.formatTimeForDisplay(task.due_date)}
+                <Text style={[
+                  styles.dueDateText,
+                  isOverdue && styles.overdueDateText
+                ]}>
+                  {taskService.formatDate(task.due_date)}
                 </Text>
-              )}
-              
-              {task.tags.length > 0 && (
-                <View style={styles.tagsContainer}>
-                  {task.tags.slice(0, 2).map((tag, index) => (
-                    <View key={index} style={styles.tag}>
-                      <Text style={styles.tagText}>{tag}</Text>
-                    </View>
-                  ))}
-                  {task.tags.length > 2 && (
-                    <Text style={styles.moreTagsText}>+{task.tags.length - 2}</Text>
-                  )}
-                </View>
               )}
             </View>
           </View>
         </View>
         
-        <View style={styles.taskActions}>
-          {task.calendar_event_id && (
-            <Ionicons name="calendar" size={16} color="#10b981" style={styles.calendarIcon} />
-          )}
-          
-          <TouchableOpacity onPress={() => onDelete(task.id)} style={styles.deleteButton}>
-            <Ionicons name="trash-outline" size={16} color="#ef4444" />
-          </TouchableOpacity>
-        </View>
+        <TouchableOpacity
+          style={styles.deleteButton}
+          onPress={() => onDelete(task.id)}
+        >
+          <Ionicons name="trash-outline" size={20} color="#EF4444" />
+        </TouchableOpacity>
       </TouchableOpacity>
     </Animatable.View>
   );
 };
 
-const CalendarDay: React.FC<CalendarDayProps> = ({ day, isToday, isSelected, hasEvents, onPress }) => (
-  <TouchableOpacity onPress={() => onPress(day)} style={styles.calendarDay}>
-    {isSelected ? (
-      <LinearGradient colors={['#667eea', '#764ba2']} style={styles.calendarDaySelected}>
-        <Text style={styles.calendarDayTextSelected}>{day}</Text>
-      </LinearGradient>
-    ) : (
-      <View style={[
-        styles.calendarDayDefault, 
-        isToday && styles.calendarDayToday,
-        hasEvents && styles.calendarDayWithEvents
-      ]}>
-        <Text style={[
-          styles.calendarDayText, 
-          isToday && styles.calendarDayTextToday
-        ]}>
-          {day}
+const NoteItem: React.FC<NoteItemProps> = ({ note, onEdit, onDelete }) => {
+  return (
+    <Animatable.View animation="fadeInUp" style={styles.noteItem}>
+      <TouchableOpacity onPress={() => onEdit(note)} style={styles.noteContent}>
+        <View style={styles.noteHeader}>
+          <Text style={styles.noteTitle}>{note.title}</Text>
+          {note.is_pinned && (
+            <Ionicons name="pin" size={16} color="#F59E0B" />
+          )}
+        </View>
+        
+        <Text style={styles.noteContentText} numberOfLines={3}>
+          {note.content}
         </Text>
-        {hasEvents && <View style={styles.eventDot} />}
-      </View>
-    )}
-  </TouchableOpacity>
-);
+        
+        <View style={styles.noteFooter}>
+          <Text style={styles.noteDate}>
+            {taskService.formatDate(note.updated_at)}
+          </Text>
+          
+          {note.tags && note.tags.length > 0 && (
+            <View style={styles.tagsContainer}>
+              {note.tags.slice(0, 2).map((tag, index) => (
+                <View key={index} style={styles.tagBadge}>
+                  <Text style={styles.tagText}>{tag}</Text>
+                </View>
+              ))}
+              {note.tags.length > 2 && (
+                <Text style={styles.moreTagsText}>+{note.tags.length - 2}</Text>
+              )}
+            </View>
+          )}
+        </View>
+      </TouchableOpacity>
+      
+      <TouchableOpacity
+        style={styles.deleteButton}
+        onPress={() => onDelete(note.id)}
+      >
+        <Ionicons name="trash-outline" size={20} color="#EF4444" />
+      </TouchableOpacity>
+    </Animatable.View>
+  );
+};
 
-const CreateTaskModal: React.FC<{
+const CalendarDay: React.FC<CalendarDayProps> = ({ 
+  day, 
+  isToday, 
+  isSelected, 
+  hasEvents, 
+  onPress 
+}) => {
+  return (
+    <TouchableOpacity
+      style={[
+        styles.calendarDay,
+        isToday && styles.calendarDayToday,
+        isSelected && styles.calendarDaySelected
+      ]}
+      onPress={() => onPress(day)}
+    >
+      <Text style={[
+        styles.calendarDayText,
+        isToday && styles.calendarDayTodayText,
+        isSelected && styles.calendarDaySelectedText
+      ]}>
+        {day}
+      </Text>
+      {hasEvents && <View style={styles.eventIndicator} />}
+    </TouchableOpacity>
+  );
+};
+
+const StatsCard: React.FC<{
+  title: string;
+  value: string;
+  subtitle: string;
+  color: string;
+}> = ({ title, value, subtitle, color }) => {
+  return (
+    <View style={styles.statsCard}>
+      <View style={[styles.statsIcon, { backgroundColor: color }]}>
+        <Text style={styles.statsValue}>{value}</Text>
+      </View>
+      <Text style={styles.statsTitle}>{title}</Text>
+      <Text style={styles.statsSubtitle}>{subtitle}</Text>
+    </View>
+  );
+};
+
+// ============================================================================
+// MODAL COMPONENTS
+// ============================================================================
+
+const TaskModal: React.FC<{
   visible: boolean;
+  task: Task | null;
   onClose: () => void;
-  onSubmit: (task: TaskCreate) => void;
-  editTask?: Task;
-}> = ({ visible, onClose, onSubmit, editTask }) => {
+  onSave: (taskData: Partial<TaskCreate>) => void;
+}> = ({ visible, task, onClose, onSave }) => {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [priority, setPriority] = useState<TaskPriority>(TaskPriority.MEDIUM);
   const [dueDate, setDueDate] = useState('');
-  const [syncToCalendar, setSyncToCalendar] = useState(false);
 
   useEffect(() => {
-    if (editTask) {
-      setTitle(editTask.title);
-      setDescription(editTask.description || '');
-      setPriority(editTask.priority);
-      setDueDate(editTask.due_date || '');
-      setSyncToCalendar(!!editTask.calendar_event_id);
+    if (task) {
+      setTitle(task.title);
+      setDescription(task.description || '');
+      setPriority(task.priority);
+      setDueDate(task.due_date ? task.due_date.split('T')[0] : '');
     } else {
-      resetForm();
+      setTitle('');
+      setDescription('');
+      setPriority(TaskPriority.MEDIUM);
+      setDueDate('');
     }
-  }, [editTask, visible]);
+  }, [task, visible]);
 
-  const resetForm = () => {
-    setTitle('');
-    setDescription('');
-    setPriority(TaskPriority.MEDIUM);
-    setDueDate('');
-    setSyncToCalendar(false);
-  };
-
-  const handleSubmit = () => {
+  const handleSave = () => {
     if (!title.trim()) {
-      Alert.alert('Error', 'Task title is required');
+      Alert.alert('Error', 'Please enter a task title');
       return;
     }
 
-    const taskData: TaskCreate = {
+    const taskData: Partial<TaskCreate> = {
       title: title.trim(),
       description: description.trim() || undefined,
       priority,
       due_date: dueDate || undefined,
-      sync_to_calendar: syncToCalendar,
-      tags: [],
-      metadata: {}
     };
 
-    onSubmit(taskData);
-    onClose();
-    resetForm();
+    onSave(taskData);
   };
 
   return (
@@ -216,85 +929,169 @@ const CreateTaskModal: React.FC<{
       <SafeAreaView style={styles.modalContainer}>
         <View style={styles.modalHeader}>
           <TouchableOpacity onPress={onClose}>
-            <Ionicons name="close" size={24} color="#374151" />
+            <Text style={styles.modalCancelButton}>Cancel</Text>
           </TouchableOpacity>
           <Text style={styles.modalTitle}>
-            {editTask ? 'Edit Task' : 'Create Task'}
+            {task ? 'Edit Task' : 'New Task'}
           </Text>
-          <TouchableOpacity onPress={handleSubmit} style={styles.saveButton}>
-            <Text style={styles.saveButtonText}>Save</Text>
+          <TouchableOpacity onPress={handleSave}>
+            <Text style={styles.modalSaveButton}>Save</Text>
           </TouchableOpacity>
         </View>
 
         <ScrollView style={styles.modalContent}>
-          <View style={styles.formGroup}>
-            <Text style={styles.label}>Title *</Text>
+          <View style={styles.inputGroup}>
+            <Text style={styles.inputLabel}>Title *</Text>
             <TextInput
-              style={styles.input}
+              style={styles.textInput}
               value={title}
               onChangeText={setTitle}
               placeholder="Enter task title"
-              placeholderTextColor="#9ca3af"
+              maxLength={100}
             />
           </View>
 
-          <View style={styles.formGroup}>
-            <Text style={styles.label}>Description</Text>
+          <View style={styles.inputGroup}>
+            <Text style={styles.inputLabel}>Description</Text>
             <TextInput
-              style={[styles.input, styles.textArea]}
+              style={[styles.textInput, styles.textAreaInput]}
               value={description}
               onChangeText={setDescription}
               placeholder="Enter task description"
-              placeholderTextColor="#9ca3af"
               multiline
-              numberOfLines={3}
+              numberOfLines={4}
+              maxLength={500}
             />
           </View>
 
-          <View style={styles.formGroup}>
-            <Text style={styles.label}>Priority</Text>
+          <View style={styles.inputGroup}>
+            <Text style={styles.inputLabel}>Priority</Text>
             <View style={styles.priorityContainer}>
-              {Object.values(TaskPriority).map((p) => (
+              {Object.values(TaskPriority).map((priorityValue) => (
                 <TouchableOpacity
-                  key={p}
-                  onPress={() => setPriority(p)}
+                  key={priorityValue}
                   style={[
-                    styles.priorityOption,
-                    priority === p && styles.priorityOptionSelected,
-                    { borderColor: taskService.getPriorityColor(p) }
+                    styles.priorityButton,
+                    priority === priorityValue && styles.priorityButtonSelected,
+                    { borderColor: taskService.getPriorityColor(priorityValue) }
                   ]}
+                  onPress={() => setPriority(priorityValue)}
                 >
                   <Text style={[
-                    styles.priorityOptionText,
-                    priority === p && { color: taskService.getPriorityColor(p) }
+                    styles.priorityButtonText,
+                    priority === priorityValue && { color: taskService.getPriorityColor(priorityValue) }
                   ]}>
-                    {p.charAt(0).toUpperCase() + p.slice(1)}
+                    {taskService.getPriorityLabel(priorityValue)}
                   </Text>
                 </TouchableOpacity>
               ))}
             </View>
           </View>
 
-          <View style={styles.formGroup}>
-            <Text style={styles.label}>Due Date</Text>
+          <View style={styles.inputGroup}>
+            <Text style={styles.inputLabel}>Due Date</Text>
             <TextInput
-              style={styles.input}
+              style={styles.textInput}
               value={dueDate}
               onChangeText={setDueDate}
-              placeholder="YYYY-MM-DD or YYYY-MM-DDTHH:MM"
-              placeholderTextColor="#9ca3af"
+              placeholder="YYYY-MM-DD"
+              maxLength={10}
+            />
+          </View>
+        </ScrollView>
+      </SafeAreaView>
+    </Modal>
+  );
+};
+
+const NoteModal: React.FC<{
+  visible: boolean;
+  note: Note | null;
+  onClose: () => void;
+  onSave: (noteData: NoteCreate) => void;
+}> = ({ visible, note, onClose, onSave }) => {
+  const [title, setTitle] = useState('');
+  const [content, setContent] = useState('');
+  const [isPinned, setIsPinned] = useState(false);
+
+  useEffect(() => {
+    if (note) {
+      setTitle(note.title);
+      setContent(note.content);
+      setIsPinned(note.is_pinned || false);
+    } else {
+      setTitle('');
+      setContent('');
+      setIsPinned(false);
+    }
+  }, [note, visible]);
+
+  const handleSave = () => {
+    if (!title.trim()) {
+      Alert.alert('Error', 'Please enter a note title');
+      return;
+    }
+
+    const noteData: NoteCreate = {
+      title: title.trim(),
+      content: content.trim(),
+      is_pinned: isPinned,
+    };
+
+    onSave(noteData);
+  };
+
+  return (
+    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet">
+      <SafeAreaView style={styles.modalContainer}>
+        <View style={styles.modalHeader}>
+          <TouchableOpacity onPress={onClose}>
+            <Text style={styles.modalCancelButton}>Cancel</Text>
+          </TouchableOpacity>
+          <Text style={styles.modalTitle}>
+            {note ? 'Edit Note' : 'New Note'}
+          </Text>
+          <TouchableOpacity onPress={handleSave}>
+            <Text style={styles.modalSaveButton}>Save</Text>
+          </TouchableOpacity>
+        </View>
+
+        <ScrollView style={styles.modalContent}>
+          <View style={styles.inputGroup}>
+            <Text style={styles.inputLabel}>Title *</Text>
+            <TextInput
+              style={styles.textInput}
+              value={title}
+              onChangeText={setTitle}
+              placeholder="Enter note title"
+              maxLength={100}
             />
           </View>
 
-          <View style={styles.formGroup}>
-            <TouchableOpacity
-              onPress={() => setSyncToCalendar(!syncToCalendar)}
-              style={styles.checkboxContainer}
+          <View style={styles.inputGroup}>
+            <Text style={styles.inputLabel}>Content</Text>
+            <TextInput
+              style={[styles.textInput, styles.noteContentInput]}
+              value={content}
+              onChangeText={setContent}
+              placeholder="Enter note content"
+              multiline
+              numberOfLines={10}
+              textAlignVertical="top"
+            />
+          </View>
+
+          <View style={styles.inputGroup}>
+            <TouchableOpacity 
+              style={styles.pinToggle}
+              onPress={() => setIsPinned(!isPinned)}
             >
-              <View style={[styles.checkbox, syncToCalendar && styles.checkboxChecked]}>
-                {syncToCalendar && <Ionicons name="checkmark" size={16} color="white" />}
-              </View>
-              <Text style={styles.checkboxLabel}>Sync to Google Calendar</Text>
+              <Ionicons 
+                name={isPinned ? "pin" : "pin-outline"} 
+                size={20} 
+                color={isPinned ? "#F59E0B" : "#6B7280"} 
+              />
+              <Text style={styles.pinToggleText}>Pin this note</Text>
             </TouchableOpacity>
           </View>
         </ScrollView>
@@ -304,166 +1101,50 @@ const CreateTaskModal: React.FC<{
 };
 
 // ============================================================================
-// MAIN COMPONENT
-// ============================================================================
-
-// ============================================================================
 // STYLES
 // ============================================================================
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f9fafb',
+    backgroundColor: '#F9FAFB',
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#f9fafb',
+    backgroundColor: '#F9FAFB',
   },
   loadingText: {
-    marginTop: 12,
+    marginTop: 16,
     fontSize: 16,
-    color: '#6b7280',
+    color: '#6B7280',
   },
   header: {
-    paddingTop: 20,
-    paddingBottom: 20,
-    paddingHorizontal: 20,
-  },
-  headerContent: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
   },
   headerTitle: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: 'white',
-  },
-  addButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  content: {
-    flex: 1,
-    backgroundColor: '#f9fafb',
-  },
-  calendarSection: {
-    backgroundColor: 'white',
-    margin: 16,
-    borderRadius: 12,
-    padding: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#111827',
-    marginBottom: 16,
-  },
-  calendar: {
-    paddingHorizontal: 8,
-  },
-  calendarDay: {
-    marginHorizontal: 4,
-  },
-  calendarDayDefault: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#f3f4f6',
-    position: 'relative',
-  },
-  calendarDaySelected: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  calendarDayToday: {
-    backgroundColor: '#dbeafe',
-    borderWidth: 2,
-    borderColor: '#3b82f6',
-  },
-  calendarDayWithEvents: {
-    backgroundColor: '#fef3c7',
-  },
-  calendarDayText: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#374151',
-  },
-  calendarDayTextSelected: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: 'white',
-  },
-  calendarDayTextToday: {
-    color: '#3b82f6',
-    fontWeight: '600',
-  },
-  eventDot: {
-    position: 'absolute',
-    bottom: 2,
-    width: 4,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: '#f59e0b',
-  },
-  statsContainer: {
-    marginHorizontal: 16,
-    marginBottom: 16,
-  },
-  statsGrid: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  statCard: {
-    flex: 1,
-    backgroundColor: 'white',
-    padding: 16,
-    borderRadius: 12,
-    alignItems: 'center',
-    marginHorizontal: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  statNumber: {
     fontSize: 24,
     fontWeight: 'bold',
-    color: '#111827',
-    marginTop: 8,
+    color: 'white',
   },
-  statLabel: {
-    fontSize: 12,
-    color: '#6b7280',
-    marginTop: 4,
+  syncButton: {
+    padding: 8,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
   },
-  tabsContainer: {
-    marginHorizontal: 16,
-    marginBottom: 16,
-  },
-  tabs: {
+  tabContainer: {
     flexDirection: 'row',
     backgroundColor: 'white',
+    paddingHorizontal: 4,
+    paddingVertical: 8,
+    marginHorizontal: 16,
+    marginTop: -8,
     borderRadius: 12,
-    padding: 4,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
@@ -471,85 +1152,225 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   tab: {
-    paddingVertical: 8,
-    paddingHorizontal: 16,
+    flex: 1,
+    flexDirection: 'column',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 8,
     borderRadius: 8,
-    marginHorizontal: 2,
   },
   activeTab: {
-    backgroundColor: '#667eea',
+    backgroundColor: '#EBF4FF',
   },
   tabText: {
-    fontSize: 14,
+    fontSize: 12,
+    marginTop: 4,
+    color: '#6B7280',
     fontWeight: '500',
-    color: '#6b7280',
   },
   activeTabText: {
-    color: 'white',
+    color: '#2563EB',
     fontWeight: '600',
   },
-  tasksSection: {
-    margin: 16,
-  },
-  tasksSectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  taskCount: {
-    fontSize: 14,
-    color: '#6b7280',
-  },
-  emptyState: {
-    alignItems: 'center',
-    paddingVertical: 48,
-    paddingHorizontal: 24,
-  },
-  emptyStateText: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#9ca3af',
+  content: {
+    flex: 1,
     marginTop: 16,
   },
-  emptyStateSubtext: {
+
+  // Dashboard Styles
+  dashboardContainer: {
+    paddingHorizontal: 16,
+  },
+  statsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    marginBottom: 24,
+  },
+  statsCard: {
+    width: (width - 48) / 2,
+    backgroundColor: 'white',
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  statsIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  statsValue: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: 'white',
+  },
+  statsTitle: {
     fontSize: 14,
-    color: '#d1d5db',
-    textAlign: 'center',
-    marginTop: 8,
+    fontWeight: '600',
+    color: '#374151',
+    marginBottom: 4,
+  },
+  statsSubtitle: {
+    fontSize: 12,
+    color: '#6B7280',
+  },
+  section: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#374151',
+    marginBottom: 12,
+  },
+  recentNoteItem: {
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+  },
+  recentNoteTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#374151',
+    marginBottom: 4,
+  },
+  recentNoteContent: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginBottom: 4,
+  },
+  recentNoteDate: {
+    fontSize: 12,
+    color: '#9CA3AF',
+  },
+  upcomingEventItem: {
+    flexDirection: 'row',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+  },
+  eventTimeContainer: {
+    width: 60,
+    marginRight: 12,
+  },
+  eventTime: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#2563EB',
+  },
+  eventDetails: {
+    flex: 1,
+  },
+  eventTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#374151',
+    marginBottom: 2,
+  },
+  eventLocation: {
+    fontSize: 14,
+    color: '#6B7280',
+  },
+
+  // Tasks Styles
+  tasksContainer: {
+    paddingHorizontal: 16,
+  },
+  filterContainer: {
+    flexDirection: 'row',
+    marginBottom: 16,
+    backgroundColor: '#F3F4F6',
+    borderRadius: 8,
+    padding: 4,
+  },
+  filterButton: {
+    flex: 1,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 6,
+    alignItems: 'center',
+  },
+  activeFilterButton: {
+    backgroundColor: 'white',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  filterButtonText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#6B7280',
+  },
+  activeFilterButtonText: {
+    color: '#2563EB',
+    fontWeight: '600',
+  },
+  addButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#2563EB',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    marginBottom: 16,
+  },
+  addButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '600',
+    marginLeft: 8,
   },
   taskItem: {
     backgroundColor: 'white',
     borderRadius: 12,
     marginBottom: 12,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
   },
   taskContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
     padding: 16,
   },
   taskLeft: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'flex-start',
-    flex: 1,
   },
   taskCheckbox: {
     width: 24,
     height: 24,
     borderRadius: 12,
     borderWidth: 2,
-    borderColor: '#d1d5db',
+    marginRight: 12,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 12,
-    marginTop: 2,
   },
   taskCheckboxCompleted: {
-    backgroundColor: '#10b981',
-    borderColor: '#10b981',
+    backgroundColor: '#10B981',
+    borderColor: '#10B981',
   },
   taskInfo: {
     flex: 1,
@@ -557,508 +1378,345 @@ const styles = StyleSheet.create({
   taskTitle: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#111827',
+    color: '#374151',
     marginBottom: 4,
   },
   taskTitleCompleted: {
     textDecorationLine: 'line-through',
-    color: '#9ca3af',
-  },
-  taskOverdue: {
-    color: '#ef4444',
+    color: '#9CA3AF',
   },
   taskDescription: {
     fontSize: 14,
-    color: '#6b7280',
+    color: '#6B7280',
     marginBottom: 8,
-    lineHeight: 20,
   },
-  taskMeta: {
+  taskMetadata: {
     flexDirection: 'row',
     alignItems: 'center',
     flexWrap: 'wrap',
   },
   priorityBadge: {
     paddingHorizontal: 8,
-    paddingVertical: 2,
+    paddingVertical: 4,
     borderRadius: 12,
     marginRight: 8,
     marginBottom: 4,
   },
   priorityText: {
-    fontSize: 10,
+    fontSize: 12,
     fontWeight: '600',
     color: 'white',
   },
-  taskTime: {
+  dueDateText: {
     fontSize: 12,
-    color: '#6b7280',
-    marginRight: 8,
+    color: '#6B7280',
     marginBottom: 4,
   },
-  taskOverdueText: {
-    color: '#ef4444',
-    fontWeight: '500',
+  overdueDateText: {
+    color: '#EF4444',
+    fontWeight: '600',
+  },
+  deleteButton: {
+    padding: 8,
+  },
+
+  // Notes Styles
+  notesContainer: {
+    paddingHorizontal: 16,
+  },
+  noteItem: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  noteContent: {
+    flex: 1,
+    padding: 16,
+  },
+  noteHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  noteTitle: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#374151',
+  },
+  noteContentText: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginBottom: 12,
+    lineHeight: 20,
+  },
+  noteFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  noteDate: {
+    fontSize: 12,
+    color: '#9CA3AF',
   },
   tagsContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    flexWrap: 'wrap',
   },
-  tag: {
-    backgroundColor: '#f3f4f6',
+  tagBadge: {
+    backgroundColor: '#EBF4FF',
     paddingHorizontal: 6,
     paddingVertical: 2,
-    borderRadius: 8,
-    marginRight: 4,
-    marginBottom: 4,
+    borderRadius: 4,
+    marginLeft: 4,
   },
   tagText: {
     fontSize: 10,
-    color: '#6b7280',
+    color: '#2563EB',
+    fontWeight: '500',
   },
   moreTagsText: {
     fontSize: 10,
-    color: '#9ca3af',
-    fontStyle: 'italic',
+    color: '#6B7280',
+    marginLeft: 4,
   },
-  taskActions: {
+
+  // Calendar Styles
+  calendarContainer: {
+    paddingHorizontal: 16,
+  },
+  calendarHeader: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+    paddingHorizontal: 16,
+  },
+  calendarTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#374151',
+  },
+  dayHeadersContainer: {
+    flexDirection: 'row',
+    backgroundColor: 'white',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderTopLeftRadius: 12,
+    borderTopRightRadius: 12,
+  },
+  dayHeader: {
+    flex: 1,
+    textAlign: 'center',
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#6B7280',
+  },
+  calendarGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    backgroundColor: 'white',
+    paddingHorizontal: 16,
+    paddingBottom: 16,
+    borderBottomLeftRadius: 12,
+    borderBottomRightRadius: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  calendarDay: {
+    width: (width - 64) / 7,
+    height: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+    position: 'relative',
+  },
+  calendarDayToday: {
+    backgroundColor: '#EBF4FF',
+    borderRadius: 20,
+  },
+  calendarDaySelected: {
+    backgroundColor: '#2563EB',
+    borderRadius: 20,
+  },
+  calendarDayText: {
+    fontSize: 16,
+    color: '#374151',
+  },
+  calendarDayTodayText: {
+    color: '#2563EB',
+    fontWeight: '600',
+  },
+  calendarDaySelectedText: {
+    color: 'white',
+    fontWeight: '600',
+  },
+  eventIndicator: {
     position: 'absolute',
-    right: 16,
-    top: 16,
+    bottom: 4,
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#F59E0B',
   },
-  calendarIcon: {
-    marginRight: 8,
+  selectedDateEvents: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    padding: 16,
+    marginTop: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
   },
-  deleteButton: {
-    padding: 4,
+  selectedDateTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#374151',
+    marginBottom: 12,
   },
+  eventItem: {
+    flexDirection: 'row',
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+  },
+  eventDescription: {
+    fontSize: 12,
+    color: '#6B7280',
+    marginTop: 2,
+  },
+  noEventsContainer: {
+    alignItems: 'center',
+    paddingVertical: 24,
+  },
+  noEventsText: {
+    fontSize: 14,
+    color: '#6B7280',
+  },
+
   // Modal Styles
   modalContainer: {
     flex: 1,
-    backgroundColor: '#f9fafb',
+    backgroundColor: '#F9FAFB',
   },
   modalHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 20,
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
     backgroundColor: 'white',
     borderBottomWidth: 1,
-    borderBottomColor: '#e5e7eb',
+    borderBottomColor: '#E5E7EB',
   },
   modalTitle: {
     fontSize: 18,
     fontWeight: '600',
-    color: '#111827',
+    color: '#374151',
   },
-  saveButton: {
-    backgroundColor: '#667eea',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 8,
+  modalCancelButton: {
+    fontSize: 16,
+    color: '#6B7280',
   },
-  saveButtonText: {
-    color: 'white',
+  modalSaveButton: {
+    fontSize: 16,
+    color: '#2563EB',
     fontWeight: '600',
   },
   modalContent: {
     flex: 1,
-    padding: 20,
+    paddingHorizontal: 20,
+    paddingTop: 20,
   },
-  formGroup: {
+  inputGroup: {
     marginBottom: 20,
   },
-  label: {
+  inputLabel: {
     fontSize: 16,
     fontWeight: '600',
     color: '#374151',
     marginBottom: 8,
   },
-  input: {
+  textInput: {
     backgroundColor: 'white',
     borderWidth: 1,
-    borderColor: '#d1d5db',
+    borderColor: '#D1D5DB',
     borderRadius: 8,
-    padding: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
     fontSize: 16,
-    color: '#111827',
+    color: '#374151',
   },
-  textArea: {
-    height: 80,
+  textAreaInput: {
+    height: 100,
+    textAlignVertical: 'top',
+  },
+  noteContentInput: {
+    height: 200,
     textAlignVertical: 'top',
   },
   priorityContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
+    gap: 8,
   },
-  priorityOption: {
-    borderWidth: 1,
-    borderColor: '#d1d5db',
-    borderRadius: 8,
-    paddingHorizontal: 12,
+  priorityButton: {
+    paddingHorizontal: 16,
     paddingVertical: 8,
-    marginRight: 8,
-    marginBottom: 8,
-    backgroundColor: 'white',
-  },
-  priorityOptionSelected: {
-    backgroundColor: '#f3f4f6',
     borderWidth: 2,
+    borderRadius: 20,
+    borderColor: '#D1D5DB',
   },
-  priorityOptionText: {
+  priorityButtonSelected: {
+    backgroundColor: 'rgba(37, 99, 235, 0.1)',
+  },
+  priorityButtonText: {
     fontSize: 14,
     fontWeight: '500',
-    color: '#6b7280',
+    color: '#6B7280',
   },
-  checkboxContainer: {
+  pinToggle: {
     flexDirection: 'row',
     alignItems: 'center',
+    paddingVertical: 12,
   },
-  checkbox: {
-    width: 20,
-    height: 20,
-    borderWidth: 2,
-    borderColor: '#d1d5db',
-    borderRadius: 4,
-    marginRight: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'white',
-  },
-  checkboxChecked: {
-    backgroundColor: '#667eea',
-    borderColor: '#667eea',
-  },
-  checkboxLabel: {
+  pinToggleText: {
     fontSize: 16,
     color: '#374151',
+    marginLeft: 8,
+  },
+
+  // Empty State Styles
+  emptyState: {
+    alignItems: 'center',
+    paddingVertical: 48,
+    paddingHorizontal: 32,
+  },
+  emptyStateText: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#9CA3AF',
+    marginTop: 16,
+    textAlign: 'center',
+  },
+  emptyStateSubtext: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginTop: 8,
+    textAlign: 'center',
   },
 });
 
 export default EnhancedPlannerScreen;
-  const [selectedDay, setSelectedDay] = useState(new Date().getDate());
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [dashboard, setDashboard] = useState<PlannerDashboard | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [modalVisible, setModalVisible] = useState(false);
-  const [editingTask, setEditingTask] = useState<Task | undefined>();
-  const [activeTab, setActiveTab] = useState<'today' | 'upcoming' | 'all'>('today');
-
-  // ========================================================================
-  // DATA FETCHING
-  // ========================================================================
-
-  const loadData = useCallback(async () => {
-    try {
-      setIsLoading(true);
-      const [dashboardData, todayTasks] = await Promise.all([
-        taskService.getDashboard(),
-        taskService.getTodayTasks()
-      ]);
-      
-      setDashboard(dashboardData);
-      setTasks(todayTasks);
-    } catch (error) {
-      console.error('Error loading data:', error);
-      Alert.alert('Error', 'Failed to load planner data');
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  const loadTasksByTab = useCallback(async (tab: 'today' | 'upcoming' | 'all') => {
-    try {
-      let newTasks: Task[];
-      
-      switch (tab) {
-        case 'today':
-          newTasks = await taskService.getTodayTasks();
-          break;
-        case 'upcoming':
-          newTasks = await taskService.getUpcomingTasks(7);
-          break;
-        case 'all':
-          newTasks = await taskService.getTasks({ limit: 50 });
-          break;
-        default:
-          newTasks = [];
-      }
-      
-      setTasks(newTasks);
-    } catch (error) {
-      console.error('Error loading tasks:', error);
-      Alert.alert('Error', 'Failed to load tasks');
-    }
-  }, []);
-
-  const onRefresh = useCallback(async () => {
-    setRefreshing(true);
-    await loadData();
-    await loadTasksByTab(activeTab);
-    setRefreshing(false);
-  }, [loadData, loadTasksByTab, activeTab]);
-
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
-
-  useEffect(() => {
-    loadTasksByTab(activeTab);
-  }, [activeTab, loadTasksByTab]);
-
-  // ========================================================================
-  // TASK OPERATIONS
-  // ========================================================================
-
-  const handleCreateTask = async (taskData: TaskCreate) => {
-    try {
-      await taskService.createTask(taskData);
-      await loadTasksByTab(activeTab);
-      await loadData(); // Refresh dashboard
-    } catch (error) {
-      console.error('Error creating task:', error);
-      Alert.alert('Error', 'Failed to create task');
-    }
-  };
-
-  const handleToggleTask = async (taskId: string) => {
-    try {
-      await taskService.toggleTaskCompletion(taskId);
-      await loadTasksByTab(activeTab);
-      await loadData(); // Refresh dashboard
-    } catch (error) {
-      console.error('Error toggling task:', error);
-      Alert.alert('Error', 'Failed to update task');
-    }
-  };
-
-  const handleEditTask = (task: Task) => {
-    setEditingTask(task);
-    setModalVisible(true);
-  };
-
-  const handleDeleteTask = async (taskId: string) => {
-    Alert.alert(
-      'Delete Task',
-      'Are you sure you want to delete this task?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await taskService.deleteTask(taskId);
-              await loadTasksByTab(activeTab);
-              await loadData(); // Refresh dashboard
-            } catch (error) {
-              console.error('Error deleting task:', error);
-              Alert.alert('Error', 'Failed to delete task');
-            }
-          }
-        }
-      ]
-    );
-  };
-
-  const handleQuickAddTask = async (title: string) => {
-    if (!title.trim()) return;
-    
-    try {
-      const quickTask: QuickTaskCreate = {
-        title: title.trim(),
-        due_today: activeTab === 'today',
-        priority: TaskPriority.MEDIUM
-      };
-      
-      await taskService.createQuickTask(quickTask);
-      await loadTasksByTab(activeTab);
-      await loadData(); // Refresh dashboard
-    } catch (error) {
-      console.error('Error creating quick task:', error);
-      Alert.alert('Error', 'Failed to create task');
-    }
-  };
-
-  // ========================================================================
-  // CALENDAR UTILITIES
-  // ========================================================================
-
-  const getCurrentMonthDays = () => {
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = now.getMonth();
-    const daysInMonth = new Date(year, month + 1, 0).getDate();
-    return Array.from({ length: daysInMonth }, (_, i) => i + 1);
-  };
-
-  const getTasksForDay = (day: number) => {
-    const today = new Date();
-    const targetDate = new Date(today.getFullYear(), today.getMonth(), day);
-    
-    return tasks.filter(task => {
-      if (!task.due_date) return false;
-      const taskDate = new Date(task.due_date);
-      return taskDate.toDateString() === targetDate.toDateString();
-    });
-  };
-
-  // ========================================================================
-  // RENDER
-  // ========================================================================
-
-  if (isLoading && !dashboard) {
-    return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#667eea" />
-          <Text style={styles.loadingText}>Loading planner...</Text>
-        </View>
-      </SafeAreaView>
-    );
-  }
-
-  const calendarDays = getCurrentMonthDays();
-  const completedTasks = tasks.filter(t => t.status === TaskStatus.COMPLETED).length;
-  const totalTasks = tasks.length;
-  const pendingTasks = totalTasks - completedTasks;
-
-  return (
-    <SafeAreaView style={styles.container}>
-      <LinearGradient colors={['#667eea', '#764ba2']} style={styles.header}>
-        <View style={styles.headerContent}>
-          <Text style={styles.headerTitle}>Planner</Text>
-          <TouchableOpacity onPress={() => setModalVisible(true)} style={styles.addButton}>
-            <Ionicons name="add" size={24} color="white" />
-          </TouchableOpacity>
-        </View>
-      </LinearGradient>
-
-      <ScrollView 
-        style={styles.content}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-        }
-      >
-        {/* Calendar Section */}
-        <Animatable.View animation="fadeInDown" delay={200} style={styles.calendarSection}>
-          <Text style={styles.sectionTitle}>Calendar</Text>
-          <ScrollView 
-            horizontal 
-            showsHorizontalScrollIndicator={false} 
-            contentContainerStyle={styles.calendar}
-          >
-            {calendarDays.map((day) => (
-              <CalendarDay
-                key={day}
-                day={day}
-                isToday={day === new Date().getDate()}
-                isSelected={day === selectedDay}
-                hasEvents={getTasksForDay(day).length > 0}
-                onPress={setSelectedDay}
-              />
-            ))}
-          </ScrollView>
-        </Animatable.View>
-
-        {/* Stats Section */}
-        {dashboard && (
-          <Animatable.View animation="fadeInUp" delay={400} style={styles.statsContainer}>
-            <View style={styles.statsGrid}>
-              <View style={styles.statCard}>
-                <Ionicons name="checkmark-circle" size={24} color="#10b981" />
-                <Text style={styles.statNumber}>{dashboard.stats.completed_tasks}</Text>
-                <Text style={styles.statLabel}>Completed</Text>
-              </View>
-              <View style={styles.statCard}>
-                <Ionicons name="time" size={24} color="#f59e0b" />
-                <Text style={styles.statNumber}>{dashboard.stats.pending_tasks}</Text>
-                <Text style={styles.statLabel}>Pending</Text>
-              </View>
-              <View style={styles.statCard}>
-                <Ionicons name="trending-up" size={24} color="#8b5cf6" />
-                <Text style={styles.statNumber}>{Math.round(dashboard.stats.completion_rate)}%</Text>
-                <Text style={styles.statLabel}>Rate</Text>
-              </View>
-              <View style={styles.statCard}>
-                <Ionicons name="flame" size={24} color="#ef4444" />
-                <Text style={styles.statNumber}>{dashboard.stats.overdue_tasks}</Text>
-                <Text style={styles.statLabel}>Overdue</Text>
-              </View>
-            </View>
-          </Animatable.View>
-        )}
-
-        {/* Task Tabs */}
-        <Animatable.View animation="fadeInLeft" delay={600} style={styles.tabsContainer}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            <View style={styles.tabs}>
-              {(['today', 'upcoming', 'all'] as const).map((tab) => (
-                <TouchableOpacity
-                  key={tab}
-                  onPress={() => setActiveTab(tab)}
-                  style={[styles.tab, activeTab === tab && styles.activeTab]}
-                >
-                  <Text style={[styles.tabText, activeTab === tab && styles.activeTabText]}>
-                    {tab.charAt(0).toUpperCase() + tab.slice(1)}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </ScrollView>
-        </Animatable.View>
-
-        {/* Tasks Section */}
-        <View style={styles.tasksSection}>
-          <Animatable.View animation="fadeInLeft" delay={800} style={styles.tasksSectionHeader}>
-            <Text style={styles.sectionTitle}>
-              {activeTab === 'today' ? "Today's Tasks" : 
-               activeTab === 'upcoming' ? 'Upcoming Tasks' : 'All Tasks'}
-            </Text>
-            <Text style={styles.taskCount}>
-              {tasks.length} task{tasks.length !== 1 ? 's' : ''}
-            </Text>
-          </Animatable.View>
-
-          {tasks.length === 0 ? (
-            <Animatable.View animation="fadeIn" style={styles.emptyState}>
-              <Ionicons name="checkmark-done-circle-outline" size={64} color="#d1d5db" />
-              <Text style={styles.emptyStateText}>No tasks found</Text>
-              <Text style={styles.emptyStateSubtext}>
-                {activeTab === 'today' ? 'You have no tasks for today' :
-                 activeTab === 'upcoming' ? 'No upcoming tasks' : 'No tasks created yet'}
-              </Text>
-            </Animatable.View>
-          ) : (
-            <Animatable.View animation="fadeInUp" delay={900}>
-              {tasks.map((task) => (
-                <TaskItem
-                  key={task.id}
-                  task={task}
-                  onToggle={handleToggleTask}
-                  onEdit={handleEditTask}
-                  onDelete={handleDeleteTask}
-                />
-              ))}
-            </Animatable.View>
-          )}
-        </View>
-      </ScrollView>
-
-      {/* Create/Edit Task Modal */}
-      <CreateTaskModal
-        visible={modalVisible}
-        onClose={() => {
-          setModalVisible(false);
-          setEditingTask(undefined);
-        }}
-        onSubmit={handleCreateTask}
-        editTask={editingTask}
-      />
-    </SafeAreaView>
-  );
-};

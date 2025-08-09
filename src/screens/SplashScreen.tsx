@@ -1,4 +1,4 @@
-// src/screens/SplashScreen.tsx
+// src/screens/SplashScreen.tsx - Fixed Navigation
 import React, { useEffect } from 'react';
 import {
   View,
@@ -23,10 +23,8 @@ const SplashScreen: React.FC<SplashScreenProps> = ({ navigation }) => {
     // Auto-navigate after 2 seconds to the auth loading screen
     // which will handle checking authentication status
     const timer = setTimeout(() => {
-      navigation.reset({
-        index: 0,
-        routes: [{ name: 'AuthLoading' }],
-      });
+      // Use replace instead of reset to avoid navigation warnings
+      navigation.replace('AuthLoading');
     }, 2000);
 
     return () => clearTimeout(timer);
@@ -78,13 +76,12 @@ const SplashScreen: React.FC<SplashScreenProps> = ({ navigation }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
   },
   content: {
-    alignItems: 'center',
-    justifyContent: 'center',
     flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 40,
   },
   logoContainer: {
     alignItems: 'center',
@@ -95,27 +92,34 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#fff',
     textAlign: 'center',
-    marginBottom: 8,
+    textShadowColor: 'rgba(0, 0, 0, 0.3)',
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 4,
   },
   taglineText: {
     fontSize: 18,
-    color: '#E8E8E8',
+    color: '#fff',
     textAlign: 'center',
+    marginTop: 10,
     opacity: 0.9,
+    fontWeight: '300',
   },
   loadingContainer: {
+    position: 'absolute',
+    bottom: 100,
     alignItems: 'center',
   },
   loadingDots: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    justifyContent: 'center',
   },
   dot: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
     backgroundColor: '#fff',
+    marginHorizontal: 4,
     opacity: 0.7,
   },
 });
