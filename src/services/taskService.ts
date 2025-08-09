@@ -127,6 +127,7 @@ export interface PlannerDashboard {
     overdue_tasks: number;
     completion_rate: number;
     total_notes: number;
+    
   };
   upcoming_tasks: Task[];
   recent_notes: Note[];

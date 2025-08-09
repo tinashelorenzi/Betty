@@ -14,7 +14,9 @@ import {
   ActivityIndicator,
   FlatList,
   Dimensions,
+  Platform,
 } from 'react-native';
+
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as Animatable from 'react-native-animatable';
@@ -28,7 +30,8 @@ import {
   PlannerDashboard,
   Note,
   NoteCreate,
-  CalendarEvent
+  CalendarEvent,
+  TaskFilter
 } from '../services/taskService';
 import taskService from '../services/taskService';
 
@@ -499,59 +502,80 @@ const DashboardTab: React.FC<{ dashboard: PlannerDashboard | null }> = ({ dashbo
     );
   }
 
+  // ✅ FIXED: Access stats from the correct structure
+  const { stats, upcoming_tasks, recent_notes, calendar_events } = dashboard;
+
   return (
     <View style={styles.dashboardContainer}>
       {/* Quick Stats */}
       <View style={styles.statsGrid}>
         <StatsCard 
           title="Total Tasks" 
-          value={dashboard.tasks.total.toString()}
-          subtitle={`${dashboard.tasks.completed} completed`}
+          value={stats.total_tasks.toString()}  // ✅ FIXED: Use stats.total_tasks
+          subtitle={`${stats.completed_tasks} completed`}  // ✅ FIXED
           color="#3B82F6"
         />
         <StatsCard 
           title="Completion Rate" 
-          value={`${Math.round(dashboard.productivity.completion_rate)}%`}
-          subtitle="This week"
+          value={`${Math.round(stats.completion_rate)}%`}  // ✅ FIXED
+          subtitle="Overall"
           color="#10B981"
         />
         <StatsCard 
-          title="Today's Tasks" 
-          value={dashboard.productivity.tasks_completed_today.toString()}
-          subtitle="Completed"
-          color="#F59E0B"
+          title="Overdue Tasks" 
+          value={stats.overdue_tasks.toString()}  // ✅ FIXED
+          subtitle="Need attention"
+          color="#EF4444"
         />
         <StatsCard 
-          title="Streak" 
-          value={`${dashboard.productivity.streak_days}`}
-          subtitle="Days"
+          title="Notes" 
+          value={stats.total_notes.toString()}  // ✅ FIXED
+          subtitle="Total"
           color="#8B5CF6"
         />
       </View>
 
+      {/* Upcoming Tasks */}
+      {upcoming_tasks && upcoming_tasks.length > 0 && (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Upcoming Tasks</Text>
+          {upcoming_tasks.slice(0, 3).map((task) => (
+            <View key={task.id} style={styles.upcomingTaskItem}>
+              <Text style={styles.taskTitle}>{task.title}</Text>
+              <Text style={styles.taskDescription}>{task.description}</Text>
+              {task.due_date && (
+                <Text style={styles.dueDateText}>
+                  Due: {new Date(task.due_date).toLocaleDateString()}
+                </Text>
+              )}
+            </View>
+          ))}
+        </View>
+      )}
+
       {/* Recent Notes */}
-      {dashboard.notes.recent.length > 0 && (
+      {recent_notes && recent_notes.length > 0 && (
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Recent Notes</Text>
-          {dashboard.notes.recent.slice(0, 3).map((note) => (
+          {recent_notes.slice(0, 3).map((note) => (
             <View key={note.id} style={styles.recentNoteItem}>
               <Text style={styles.recentNoteTitle}>{note.title}</Text>
               <Text style={styles.recentNoteContent} numberOfLines={2}>
                 {note.content}
               </Text>
               <Text style={styles.recentNoteDate}>
-                {taskService.formatDate(note.updated_at)}
+                {new Date(note.created_at).toLocaleDateString()}
               </Text>
             </View>
           ))}
         </View>
       )}
 
-      {/* Upcoming Events */}
-      {dashboard.calendar.upcoming_events.length > 0 && (
+      {/* Calendar Events */}
+      {calendar_events && calendar_events.length > 0 && (
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Upcoming Events</Text>
-          {dashboard.calendar.upcoming_events.slice(0, 3).map((event) => (
+          {calendar_events.slice(0, 3).map((event) => (
             <View key={event.id} style={styles.upcomingEventItem}>
               <View style={styles.eventTimeContainer}>
                 <Text style={styles.eventTime}>
@@ -991,6 +1015,8 @@ const TaskModal: React.FC<{
   const [description, setDescription] = useState('');
   const [priority, setPriority] = useState<TaskPriority>(TaskPriority.MEDIUM);
   const [dueDate, setDueDate] = useState('');
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [calendarDate, setCalendarDate] = useState(new Date());
 
   useEffect(() => {
     if (task) {
@@ -1020,6 +1046,27 @@ const TaskModal: React.FC<{
     };
 
     onSave(taskData);
+  };
+
+  const handleDateChange = (event: any, selectedDate?: Date) => {
+    setShowDatePicker(false);
+    if (selectedDate) {
+      // Format the date as YYYY-MM-DD to maintain the same format
+      const year = selectedDate.getFullYear();
+      const month = String(selectedDate.getMonth() + 1).padStart(2, '0');
+      const day = String(selectedDate.getDate()).padStart(2, '0');
+      const formattedDate = `${year}-${month}-${day}`;
+      setDueDate(formattedDate);
+    }
+  };
+
+  const openDatePicker = () => {
+    setCalendarDate(new Date()); // Reset to current month
+    setShowDatePicker(true);
+  };
+
+  const clearDueDate = () => {
+    setDueDate('');
   };
 
   return (
@@ -1088,13 +1135,174 @@ const TaskModal: React.FC<{
 
           <View style={styles.inputGroup}>
             <Text style={styles.inputLabel}>Due Date</Text>
-            <TextInput
-              style={styles.textInput}
-              value={dueDate}
-              onChangeText={setDueDate}
-              placeholder="YYYY-MM-DD"
-              maxLength={10}
-            />
+            <View style={styles.dateInputContainer}>
+              <TextInput
+                style={[styles.textInput, styles.dateInput]}
+                value={dueDate}
+                onChangeText={setDueDate}
+                placeholder="YYYY-MM-DD"
+                maxLength={10}
+                editable={false}
+              />
+              <TouchableOpacity 
+                style={styles.calendarButton} 
+                onPress={openDatePicker}
+              >
+                <Ionicons name="calendar-outline" size={20} color="#6B7280" />
+              </TouchableOpacity>
+              {dueDate && (
+                <TouchableOpacity 
+                  style={styles.clearDateButton} 
+                  onPress={clearDueDate}
+                >
+                  <Ionicons name="close-circle" size={20} color="#EF4444" />
+                </TouchableOpacity>
+              )}
+            </View>
+            <Modal visible={showDatePicker} transparent animationType="fade">
+              <View style={styles.datePickerOverlay}>
+                <View style={styles.datePickerContainer}>
+                  <View style={styles.datePickerHeader}>
+                    <TouchableOpacity onPress={() => setShowDatePicker(false)}>
+                      <Text style={styles.datePickerCancelButton}>Cancel</Text>
+                    </TouchableOpacity>
+                    <Text style={styles.datePickerTitle}>Select Due Date</Text>
+                    <TouchableOpacity onPress={() => setShowDatePicker(false)}>
+                      <Text style={styles.datePickerDoneButton}>Done</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <View style={styles.datePickerContent}>
+                    <View style={styles.quickDateButtons}>
+                      <TouchableOpacity 
+                        style={styles.quickDateButton}
+                        onPress={() => {
+                          const today = new Date();
+                          const year = today.getFullYear();
+                          const month = String(today.getMonth() + 1).padStart(2, '0');
+                          const day = String(today.getDate()).padStart(2, '0');
+                          setDueDate(`${year}-${month}-${day}`);
+                          setShowDatePicker(false);
+                        }}
+                      >
+                        <Text style={styles.quickDateButtonText}>Today</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity 
+                        style={styles.quickDateButton}
+                        onPress={() => {
+                          const tomorrow = new Date();
+                          tomorrow.setDate(tomorrow.getDate() + 1);
+                          const year = tomorrow.getFullYear();
+                          const month = String(tomorrow.getMonth() + 1).padStart(2, '0');
+                          const day = String(tomorrow.getDate()).padStart(2, '0');
+                          setDueDate(`${year}-${month}-${day}`);
+                          setShowDatePicker(false);
+                        }}
+                      >
+                        <Text style={styles.quickDateButtonText}>Tomorrow</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity 
+                        style={styles.quickDateButton}
+                        onPress={() => {
+                          const nextWeek = new Date();
+                          nextWeek.setDate(nextWeek.getDate() + 7);
+                          const year = nextWeek.getFullYear();
+                          const month = String(nextWeek.getMonth() + 1).padStart(2, '0');
+                          const day = String(nextWeek.getDate()).padStart(2, '0');
+                          setDueDate(`${year}-${month}-${day}`);
+                          setShowDatePicker(false);
+                        }}
+                      >
+                        <Text style={styles.quickDateButtonText}>Next Week</Text>
+                      </TouchableOpacity>
+                    </View>
+                    
+                    <View style={styles.datePickerCalendarSelector}>
+                      <View style={styles.datePickerCalendarHeader}>
+                        <TouchableOpacity 
+                          style={styles.datePickerCalendarNavButton}
+                          onPress={() => {
+                            const newDate = new Date(calendarDate.getFullYear(), calendarDate.getMonth() - 1, 1);
+                            setCalendarDate(newDate);
+                          }}
+                        >
+                          <Ionicons name="chevron-back" size={20} color="#6B7280" />
+                        </TouchableOpacity>
+                        <Text style={styles.datePickerCalendarMonthYear}>
+                          {calendarDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+                        </Text>
+                        <TouchableOpacity 
+                          style={styles.datePickerCalendarNavButton}
+                          onPress={() => {
+                            const newDate = new Date(calendarDate.getFullYear(), calendarDate.getMonth() + 1, 1);
+                            setCalendarDate(newDate);
+                          }}
+                        >
+                          <Ionicons name="chevron-forward" size={20} color="#6B7280" />
+                        </TouchableOpacity>
+                      </View>
+                      
+                      <View style={styles.datePickerCalendarGrid}>
+                        {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
+                          <Text key={day} style={styles.datePickerCalendarDayHeader}>{day}</Text>
+                        ))}
+                        {Array.from({ length: 35 }, (_, i) => {
+                          const firstDay = new Date(calendarDate.getFullYear(), calendarDate.getMonth(), 1);
+                          const lastDay = new Date(calendarDate.getFullYear(), calendarDate.getMonth() + 1, 0);
+                          const startOffset = firstDay.getDay();
+                          const dayNumber = i - startOffset + 1;
+                          
+                          if (dayNumber < 1 || dayNumber > lastDay.getDate()) {
+                            return <View key={i} style={styles.datePickerCalendarDayEmpty} />;
+                          }
+                          
+                          const today = new Date();
+                          const isToday = dayNumber === today.getDate() && 
+                                        calendarDate.getMonth() === today.getMonth() && 
+                                        calendarDate.getFullYear() === today.getFullYear();
+                          const isSelected = dueDate === `${calendarDate.getFullYear()}-${String(calendarDate.getMonth() + 1).padStart(2, '0')}-${String(dayNumber).padStart(2, '0')}`;
+                          
+                          return (
+                            <TouchableOpacity
+                              key={i}
+                              style={[
+                                styles.datePickerCalendarDay,
+                                isToday && styles.datePickerCalendarDayToday,
+                                isSelected && styles.datePickerCalendarDaySelected
+                              ]}
+                              onPress={() => {
+                                const year = calendarDate.getFullYear();
+                                const month = String(calendarDate.getMonth() + 1).padStart(2, '0');
+                                const day = String(dayNumber).padStart(2, '0');
+                                setDueDate(`${year}-${month}-${day}`);
+                                setShowDatePicker(false);
+                              }}
+                            >
+                              <Text style={[
+                                styles.datePickerCalendarDayText,
+                                isToday && styles.datePickerCalendarDayTodayText,
+                                isSelected && styles.datePickerCalendarDaySelectedText
+                              ]}>
+                                {dayNumber}
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+                    </View>
+                    
+                    <Text style={styles.datePickerSubtitle}>Or enter manually:</Text>
+                    <TextInput
+                      style={[styles.textInput, styles.manualDateInput]}
+                      value={dueDate}
+                      onChangeText={setDueDate}
+                      placeholder="YYYY-MM-DD"
+                      maxLength={10}
+                      keyboardType="numeric"
+                    />
+                  </View>
+                </View>
+              </View>
+            </Modal>
           </View>
         </ScrollView>
       </SafeAreaView>
@@ -1822,7 +2030,7 @@ const styles = StyleSheet.create({
     padding: 15,
     margin: 10,
     borderRadius: 8,
-    borderLeft: 4,
+    borderLeftWidth: 4,
     borderLeftColor: '#ff4444',
   },
   errorText: {
@@ -1840,6 +2048,194 @@ const styles = StyleSheet.create({
   retryButtonText: {
     color: 'white',
     fontSize: 14,
+    fontWeight: '600',
+  },
+
+  // Dashboard Tab Styles
+  upcomingTaskItem: {
+    backgroundColor: 'white',
+    borderRadius: 8,
+    padding: 16,
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+
+  // Date Picker Styles
+  dateInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'white',
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    borderRadius: 8,
+    overflow: 'hidden',
+  },
+  dateInput: {
+    flex: 1,
+    borderWidth: 0,
+    borderRadius: 0,
+    backgroundColor: 'transparent',
+  },
+  calendarButton: {
+    padding: 12,
+    backgroundColor: '#F9FAFB',
+    borderLeftWidth: 1,
+    borderLeftColor: '#D1D5DB',
+  },
+  clearDateButton: {
+    padding: 12,
+    backgroundColor: '#FEF2F2',
+    borderLeftWidth: 1,
+    borderLeftColor: '#D1D5DB',
+  },
+  datePickerOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  datePickerContainer: {
+    backgroundColor: 'white',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingBottom: 20,
+  },
+  datePickerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+  },
+  datePickerTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#374151',
+  },
+  datePickerCancelButton: {
+    fontSize: 16,
+    color: '#6B7280',
+  },
+  datePickerDoneButton: {
+    fontSize: 16,
+    color: '#007AFF',
+    fontWeight: '600',
+  },
+  datePickerContent: {
+    padding: 20,
+    alignItems: 'center',
+  },
+  quickDateButtons: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: 12,
+    marginBottom: 20,
+  },
+  quickDateButton: {
+    backgroundColor: '#F3F4F6',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+  },
+  quickDateButtonText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#374151',
+  },
+  datePickerSubtitle: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#6B7280',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  manualDateInput: {
+    width: 200,
+    textAlign: 'center',
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  
+  // Date Picker Calendar Styles
+  datePickerCalendarSelector: {
+    marginVertical: 20,
+    backgroundColor: 'white',
+    borderRadius: 12,
+    padding: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  datePickerCalendarHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  datePickerCalendarNavButton: {
+    padding: 8,
+    borderRadius: 20,
+    backgroundColor: '#F3F4F6',
+  },
+  datePickerCalendarMonthYear: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#374151',
+  },
+  datePickerCalendarGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+  },
+  datePickerCalendarDayHeader: {
+    width: 40,
+    height: 40,
+    textAlign: 'center',
+    lineHeight: 40,
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#6B7280',
+    marginBottom: 8,
+  },
+  datePickerCalendarDay: {
+    width: 40,
+    height: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 20,
+    marginBottom: 8,
+  },
+  datePickerCalendarDayEmpty: {
+    width: 40,
+    height: 40,
+    marginBottom: 8,
+  },
+  datePickerCalendarDayToday: {
+    backgroundColor: '#3B82F6',
+  },
+  datePickerCalendarDaySelected: {
+    backgroundColor: '#10B981',
+  },
+  datePickerCalendarDayText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#374151',
+  },
+  datePickerCalendarDayTodayText: {
+    color: 'white',
+    fontWeight: '600',
+  },
+  datePickerCalendarDaySelectedText: {
+    color: 'white',
     fontWeight: '600',
   },
 });
