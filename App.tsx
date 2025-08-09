@@ -2,6 +2,8 @@
 import React from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { TaskProvider } from './src/contexts/TaskContext';
+import { NavigationContainer } from '@react-navigation/native';
 import { AuthProvider } from './src/contexts/AuthContext';
 import AppNavigator from './src/navigation/AppNavigator';
 
@@ -10,6 +12,7 @@ import AppNavigator from './src/navigation/AppNavigator';
 
 const App: React.FC = () => {
   return (
+    
     <SafeAreaProvider>
       <AuthProvider>
         {/* Add other providers here if needed */}
