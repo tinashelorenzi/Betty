@@ -82,6 +82,9 @@ const EnhancedPlannerScreen: React.FC = () => {
   const [calendarLoading, setCalendarLoading] = useState(false);
   const [calendarError, setCalendarError] = useState<string | null>(null);
 
+  // ADD new state for Google connection status
+  const [googleConnected, setGoogleConnected] = useState<boolean>(false);
+
   // Task states
   const [tasks, setTasks] = useState<Task[]>([]);
   const [showTaskModal, setShowTaskModal] = useState(false);
@@ -101,43 +104,64 @@ const EnhancedPlannerScreen: React.FC = () => {
   }, []);
 
   const loadInitialData = async () => {
-    setIsLoading(true);
-    setError(null);
-    
     try {
       console.log('🔄 Loading initial planner data...');
+      setIsLoading(true);
+      setError(null);
       
-      // Load data with individual error handling
-      const promises = [
-        loadDashboard().catch(err => {
-          console.error('Dashboard load failed:', err);
-          return null; // Continue with other data
-        }),
-        loadTasks().catch(err => {
-          console.error('Tasks load failed:', err);
-          return null;
-        }),
-        loadCalendarEvents().catch(err => {
-          console.error('Calendar events load failed:', err);
-          return null;
-        })
-      ];
-
-      await Promise.allSettled(promises);
+      // Load data concurrently but handle errors independently
+      const results = await Promise.allSettled([
+        loadDashboard(),
+        loadTasks(),
+        loadNotes(),
+        loadCalendarEvents(),
+        checkGoogleConnectionStatus()
+      ]);
+      
+      // Log any failures but don't crash the app
+      results.forEach((result, index) => {
+        const names = ['dashboard', 'tasks', 'notes', 'calendar', 'google_status'];
+        if (result.status === 'rejected') {
+          console.error(`❌ Failed to load ${names[index]}:`, result.reason);
+        }
+      });
+      
       console.log('✅ Initial data loading completed');
       
     } catch (error) {
-      console.error('❌ Error loading initial data:', error);
-      setError('Failed to load planner data. Please try again.');
+      console.error('❌ Error during initial data loading:', error);
+      setError('Failed to load planner data');
     } finally {
       setIsLoading(false);
     }
   };
 
+  const checkGoogleConnectionStatus = async () => {
+    try {
+      const status = await taskService.checkGoogleConnection();
+      setGoogleConnected(status.connected);
+      
+      if (!status.connected) {
+        console.log('⚠️ Google account not connected, some features may be limited');
+      } else {
+        console.log('✅ Google account connected');
+      }
+    } catch (error) {
+      console.error('Error checking Google connection:', error);
+      setGoogleConnected(false);
+    }
+  };
+
+  // UPDATE the refresh control to be more robust
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await loadInitialData();
-    setRefreshing(false);
+    try {
+      await loadInitialData();
+    } catch (error) {
+      console.error('Error during refresh:', error);
+    } finally {
+      setRefreshing(false);
+    }
   }, []);
 
   // ============================================================================
@@ -148,12 +172,13 @@ const EnhancedPlannerScreen: React.FC = () => {
     try {
       console.log('🔄 Loading dashboard...');
       setDashboardLoading(true);
+      setDashboardError(null);
       
       const dashboardData = await taskService.getPlannerDashboard();
-      console.log('✅ Dashboard loaded:', dashboardData);
+      
+      console.log('✅ Dashboard loaded successfully');
       
       setDashboard(dashboardData);
-      setDashboardError(null);
       
     } catch (error) {
       console.error('❌ Error loading dashboard:', error);
@@ -217,22 +242,28 @@ const EnhancedPlannerScreen: React.FC = () => {
     try {
       console.log('🔄 Loading calendar events...');
       setCalendarLoading(true);
+      setCalendarError(null);
       
-      const startDate = new Date().toISOString().split('T')[0]; // Today
-      const endDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]; // 30 days from now
+      const today = new Date();
+      const startDate = today.toISOString().split('T')[0];
+      const endDate = new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
       
       console.log(`Loading events from ${startDate} to ${endDate}`);
       
       const eventsData = await taskService.getCalendarEvents(startDate, endDate);
-      console.log('✅ Calendar events loaded:', eventsData.length);
+      
+      if (eventsData.length === 0) {
+        console.log('📅 No calendar events found or Google account not connected');
+      } else {
+        console.log(`✅ Loaded ${eventsData.length} calendar events`);
+      }
       
       setCalendarEvents(eventsData);
-      setCalendarError(null);
       
     } catch (error) {
       console.error('❌ Error loading calendar events:', error);
       setCalendarError('Failed to load calendar events');
-      setCalendarEvents([]); // Set empty array to prevent crashes
+      setCalendarEvents([]);
     } finally {
       setCalendarLoading(false);
     }
@@ -242,6 +273,38 @@ const EnhancedPlannerScreen: React.FC = () => {
   const retryLoadData = async () => {
     console.log('🔄 Retrying data load...');
     await loadInitialData();
+  };
+
+  // ADD Google connection prompt component
+  const renderGoogleConnectionPrompt = () => {
+    if (googleConnected) return null;
+    
+    return (
+      <View style={styles.connectionPrompt}>
+        <Ionicons name="link-outline" size={24} color="#F59E0B" />
+        <Text style={styles.connectionPromptText}>
+          Connect your Google account to sync calendar and tasks
+        </Text>
+        <TouchableOpacity style={styles.connectButton} onPress={handleConnectGoogle}>
+          <Text style={styles.connectButtonText}>Connect Google</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  };
+
+  const handleConnectGoogle = () => {
+    // Navigate to Google OAuth or show connection instructions
+    Alert.alert(
+      "Connect Google Account",
+      "To sync your calendar and tasks, please connect your Google account in Settings.",
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Go to Settings", onPress: () => {
+          // Navigate to settings or profile screen
+          console.log("Navigate to Google connection settings");
+        }}
+      ]
+    );
   };
 
   // Error boundary component
@@ -401,6 +464,9 @@ const EnhancedPlannerScreen: React.FC = () => {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
       >
+        {/* Google Connection Prompt */}
+        {renderGoogleConnectionPrompt()}
+        
         {activeTab === 'dashboard' && <DashboardTab dashboard={dashboard} />}
         {activeTab === 'tasks' && (
           <TasksTab 
@@ -2236,6 +2302,36 @@ const styles = StyleSheet.create({
   },
   datePickerCalendarDaySelectedText: {
     color: 'white',
+    fontWeight: '600',
+  },
+
+  // Google Connection Prompt Styles
+  connectionPrompt: {
+    backgroundColor: '#FEF3C7',
+    padding: 16,
+    margin: 16,
+    borderRadius: 12,
+    borderLeftWidth: 4,
+    borderLeftColor: '#F59E0B',
+    alignItems: 'center',
+  },
+  connectionPromptText: {
+    fontSize: 14,
+    color: '#92400E',
+    textAlign: 'center',
+    marginVertical: 8,
+    lineHeight: 20,
+  },
+  connectButton: {
+    backgroundColor: '#F59E0B',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 8,
+    marginTop: 8,
+  },
+  connectButtonText: {
+    color: 'white',
+    fontSize: 14,
     fontWeight: '600',
   },
 });

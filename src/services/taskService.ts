@@ -285,14 +285,17 @@ class TaskService {
 
   async getPlannerDashboard(): Promise<PlannerDashboard> {
     try {
-      console.log('Getting planner dashboard...');
-      const response = await this.api.get<PlannerDashboard>('/planner/dashboard');
-      console.log('Dashboard response:', response.data);
-      return response.data;
-    } catch (error) {
-      console.error('Error getting planner dashboard:', error);
+      console.log('🔄 Getting planner dashboard...');
+      const response = await this.api.get<PlannerDashboard>('/planner/dashboard', {
+        timeout: 10000
+      });
       
-      // Return a default dashboard structure to prevent UI crashes
+      console.log('✅ Dashboard loaded successfully');
+      return response.data;
+    } catch (error: any) {
+      console.error('❌ Error getting planner dashboard:', error.response?.data || error.message);
+      
+      // Return a safe default dashboard structure
       return {
         stats: {
           total_tasks: 0,
@@ -331,19 +334,29 @@ class TaskService {
 
   async getCalendarEvents(startDate: string, endDate: string): Promise<CalendarEvent[]> {
     try {
-      console.log(`Getting calendar events from ${startDate} to ${endDate}`);
+      console.log(`🔄 Fetching calendar events from ${startDate} to ${endDate}`);
       
       const response = await this.api.get<CalendarEvent[]>('/planner/calendar/events', {
         params: { 
           start_date: startDate, 
           end_date: endDate 
-        }
+        },
+        timeout: 10000 // 10 second timeout
       });
       
+      console.log(`✅ Retrieved ${response.data.length} calendar events`);
       return response.data;
-    } catch (error) {
-      console.error('Error getting calendar events:', error);
-      // Return empty array instead of throwing
+    } catch (error: any) {
+      console.error('❌ Error getting calendar events:', error.response?.data || error.message);
+      
+      // Check if it's a Google credentials issue
+      if (error.response?.status === 401 || 
+          error.response?.data?.detail?.includes('Google credentials')) {
+        console.log('🔐 Google credentials issue detected, returning empty array');
+        return [];
+      }
+      
+      // For other errors, return empty array to prevent UI crashes
       return [];
     }
   }
@@ -360,13 +373,35 @@ class TaskService {
 
   async syncWithGoogleCalendar(daysAhead: number = 7): Promise<any> {
     try {
-      const response = await this.api.post('/planner/calendar/sync-google', {
-        days_ahead: daysAhead
+      console.log(`🔄 Syncing with Google Calendar for ${daysAhead} days ahead`);
+      
+      const response = await this.api.post('/planner/tasks/sync-calendar', null, {
+        params: { days_ahead: daysAhead },
+        timeout: 15000 // 15 second timeout for sync operations
       });
+      
+      console.log('✅ Google Calendar sync completed:', response.data);
+      return response.data;
+    } catch (error: any) {
+      console.error('❌ Error syncing with Google Calendar:', error.response?.data || error.message);
+      
+      return { 
+        success: false, 
+        error: error.response?.data?.detail || 'Failed to sync with Google Calendar',
+        needs_reauth: error.response?.status === 401 || 
+                     error.response?.data?.detail?.includes('Google credentials')
+      };
+    }
+  }
+
+  // ADD this new method to check Google connection status
+  async checkGoogleConnection(): Promise<{ connected: boolean; user_info?: any }> {
+    try {
+      const response = await this.api.get('/auth/google/status');
       return response.data;
     } catch (error) {
-      console.error('Error syncing with Google Calendar:', error);
-      return { success: false, error: 'Failed to sync with Google Calendar' };
+      console.error('Error checking Google connection:', error);
+      return { connected: false };
     }
   }
 
