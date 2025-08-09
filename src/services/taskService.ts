@@ -1,8 +1,10 @@
-// src/services/taskService.ts
+// src/services/taskService.ts - UPDATED METHODS
 import axios, { AxiosInstance } from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:8000';
+const Config = {
+  API_BASE_URL: process.env.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:8000'
+};
 
 // ============================================================================
 // TYPE DEFINITIONS
@@ -118,30 +120,17 @@ export interface CalendarEvent {
 }
 
 export interface PlannerDashboard {
-  tasks: {
-    total: number;
-    completed: number;
-    pending: number;
-    overdue: number;
-    by_priority: Record<TaskPriority, number>;
-    by_status: Record<TaskStatus, number>;
-  };
-  notes: {
-    total: number;
-    pinned: number;
-    recent: Note[];
-  };
-  calendar: {
-    upcoming_events: CalendarEvent[];
-    events_today: number;
-    events_this_week: number;
-  };
-  productivity: {
+  stats: {
+    total_tasks: number;
+    completed_tasks: number;
+    pending_tasks: number;
+    overdue_tasks: number;
     completion_rate: number;
-    average_completion_time: number;
-    streak_days: number;
-    tasks_completed_today: number;
+    total_notes: number;
   };
+  upcoming_tasks: Task[];
+  recent_notes: Note[];
+  calendar_events: CalendarEvent[];
 }
 
 export interface TaskFilter {
@@ -151,6 +140,8 @@ export interface TaskFilter {
   due_date_to?: string;
   tags?: string[];
   search?: string;
+  completed?: boolean;
+  limit?: number;
 }
 
 // ============================================================================
@@ -162,11 +153,10 @@ class TaskService {
 
   constructor() {
     this.api = axios.create({
-      baseURL: API_BASE_URL,
-      timeout: 10000,
+      baseURL: Config.API_BASE_URL,
     });
 
-    // Add request interceptor to include auth token
+    // Add auth interceptor
     this.api.interceptors.request.use(async (config) => {
       const token = await AsyncStorage.getItem('authToken');
       if (token) {
@@ -175,166 +165,269 @@ class TaskService {
       return config;
     });
 
-    // Add response interceptor for error handling
+    // Add response interceptor for better error handling
     this.api.interceptors.response.use(
       (response) => response,
-      (error) => {
-        console.error('API Error:', error.response?.data || error.message);
-        throw error;
+      async (error) => {
+        console.log('API Error:', error.response?.data || error.message);
+        
+        if (error.response?.status === 401) {
+          // Handle unauthorized access
+          await AsyncStorage.removeItem('authToken');
+          // Navigate to login screen
+        }
+        
+        return Promise.reject(error);
       }
     );
   }
 
   // ============================================================================
-  // TASK METHODS
+  // TASK METHODS - UPDATED
   // ============================================================================
 
   async createTask(task: TaskCreate): Promise<Task> {
-    const response = await this.api.post<Task>('/planner/tasks', task);
-    return response.data;
-  }
-
-  async createQuickTask(quickTask: QuickTaskCreate): Promise<Task> {
-    const response = await this.api.post<Task>('/planner/tasks/quick', quickTask);
-    return response.data;
+    try {
+      const response = await this.api.post<Task>('/planner/tasks', task);
+      return response.data;
+    } catch (error) {
+      console.error('Error creating task:', error);
+      throw new Error('Failed to create task');
+    }
   }
 
   async getTasks(filter?: TaskFilter): Promise<Task[]> {
-    const params = filter ? this.buildFilterParams(filter) : {};
-    const response = await this.api.get<Task[]>('/planner/tasks', { params });
-    return response.data;
+    try {
+      // Build query parameters properly
+      const params: Record<string, any> = {};
+      
+      if (filter) {
+        if (filter.status?.length) {
+          // Send status as individual parameters for each status
+          filter.status.forEach((status, index) => {
+            params[`status_${index}`] = status;
+          });
+          // Or as comma-separated string
+          params.status = filter.status.join(',');
+        }
+        
+        if (filter.priority?.length) {
+          params.priority = filter.priority.join(',');
+        }
+        
+        if (filter.due_date_from) {
+          params.due_date_from = filter.due_date_from;
+        }
+        
+        if (filter.due_date_to) {
+          params.due_date_to = filter.due_date_to;
+        }
+        
+        if (filter.completed !== undefined) {
+          params.completed = filter.completed;
+        }
+      }
+
+      console.log('Getting tasks with params:', params);
+      
+      const response = await this.api.get<Task[]>('/planner/tasks', { params });
+      return response.data;
+    } catch (error) {
+      console.error('Error getting tasks:', error);
+      // Return empty array instead of throwing to prevent UI crashes
+      return [];
+    }
   }
 
   async getTask(taskId: string): Promise<Task> {
-    const response = await this.api.get<Task>(`/planner/tasks/${taskId}`);
-    return response.data;
+    try {
+      const response = await this.api.get<Task>(`/planner/tasks/${taskId}`);
+      return response.data;
+    } catch (error) {
+      console.error('Error getting task:', error);
+      throw new Error('Failed to get task');
+    }
   }
 
   async updateTask(taskId: string, update: TaskUpdate): Promise<Task> {
-    const response = await this.api.put<Task>(`/planner/tasks/${taskId}`, update);
-    return response.data;
+    try {
+      const response = await this.api.put<Task>(`/planner/tasks/${taskId}`, update);
+      return response.data;
+    } catch (error) {
+      console.error('Error updating task:', error);
+      throw new Error('Failed to update task');
+    }
   }
 
   async deleteTask(taskId: string): Promise<void> {
-    await this.api.delete(`/planner/tasks/${taskId}`);
+    try {
+      await this.api.delete(`/planner/tasks/${taskId}`);
+    } catch (error) {
+      console.error('Error deleting task:', error);
+      throw new Error('Failed to delete task');
+    }
   }
 
   async toggleTaskStatus(taskId: string): Promise<Task> {
-    const response = await this.api.patch<Task>(`/planner/tasks/${taskId}/toggle`);
-    return response.data;
-  }
-
-  async syncTasksWithCalendar(daysAhead: number = 7): Promise<any> {
-    const response = await this.api.post(`/planner/tasks/sync-calendar`, {
-      days_ahead: daysAhead
-    });
-    return response.data;
-  }
-
-  // ============================================================================
-  // NOTE METHODS
-  // ============================================================================
-
-  async createNote(note: NoteCreate): Promise<Note> {
-    const response = await this.api.post<Note>('/planner/notes', note);
-    return response.data;
-  }
-
-  async getNotes(limit: number = 20): Promise<Note[]> {
-    const response = await this.api.get<Note[]>('/planner/notes', {
-      params: { limit }
-    });
-    return response.data;
-  }
-
-  async getNote(noteId: string): Promise<Note> {
-    const response = await this.api.get<Note>(`/planner/notes/${noteId}`);
-    return response.data;
-  }
-
-  async updateNote(noteId: string, update: NoteUpdate): Promise<Note> {
-    const response = await this.api.put<Note>(`/planner/notes/${noteId}`, update);
-    return response.data;
-  }
-
-  async deleteNote(noteId: string): Promise<void> {
-    await this.api.delete(`/planner/notes/${noteId}`);
-  }
-
-  async exportNoteToGoogleKeep(noteId: string): Promise<any> {
-    const response = await this.api.post(`/planner/notes/${noteId}/export-google`);
-    return response.data;
+    try {
+      const response = await this.api.post<Task>(`/planner/tasks/${taskId}/toggle`);
+      return response.data;
+    } catch (error) {
+      console.error('Error toggling task status:', error);
+      throw new Error('Failed to toggle task status');
+    }
   }
 
   // ============================================================================
-  // CALENDAR METHODS
-  // ============================================================================
-
-  async getCalendarEvents(startDate: string, endDate: string): Promise<CalendarEvent[]> {
-    const response = await this.api.get<CalendarEvent[]>('/planner/calendar/events', {
-      params: { start_date: startDate, end_date: endDate }
-    });
-    return response.data;
-  }
-
-  async createCalendarEvent(event: Omit<CalendarEvent, 'id' | 'created_at' | 'updated_at' | 'user_id'>): Promise<CalendarEvent> {
-    const response = await this.api.post<CalendarEvent>('/planner/calendar/events', event);
-    return response.data;
-  }
-
-  async syncWithGoogleCalendar(daysAhead: number = 7): Promise<any> {
-    const response = await this.api.post('/planner/calendar/sync-google', {
-      days_ahead: daysAhead
-    });
-    return response.data;
-  }
-
-  // ============================================================================
-  // DASHBOARD AND ANALYTICS
+  // DASHBOARD METHODS - UPDATED
   // ============================================================================
 
   async getPlannerDashboard(): Promise<PlannerDashboard> {
-    const response = await this.api.get<PlannerDashboard>('/planner/dashboard');
-    return response.data;
+    try {
+      console.log('Getting planner dashboard...');
+      const response = await this.api.get<PlannerDashboard>('/planner/dashboard');
+      console.log('Dashboard response:', response.data);
+      return response.data;
+    } catch (error) {
+      console.error('Error getting planner dashboard:', error);
+      
+      // Return a default dashboard structure to prevent UI crashes
+      return {
+        stats: {
+          total_tasks: 0,
+          completed_tasks: 0,
+          pending_tasks: 0,
+          overdue_tasks: 0,
+          completion_rate: 0,
+          total_notes: 0
+        },
+        upcoming_tasks: [],
+        recent_notes: [],
+        calendar_events: []
+      };
+    }
   }
 
   async getPlannerStats(days: number = 30): Promise<any> {
-    const response = await this.api.get('/planner/stats', {
-      params: { days }
-    });
-    return response.data;
+    try {
+      const response = await this.api.get('/planner/stats', {
+        params: { days }
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Error getting planner stats:', error);
+      return {
+        total_tasks: 0,
+        completed_tasks: 0,
+        completion_rate: 0
+      };
+    }
+  }
+
+  // ============================================================================
+  // CALENDAR METHODS - UPDATED
+  // ============================================================================
+
+  async getCalendarEvents(startDate: string, endDate: string): Promise<CalendarEvent[]> {
+    try {
+      console.log(`Getting calendar events from ${startDate} to ${endDate}`);
+      
+      const response = await this.api.get<CalendarEvent[]>('/planner/calendar/events', {
+        params: { 
+          start_date: startDate, 
+          end_date: endDate 
+        }
+      });
+      
+      return response.data;
+    } catch (error) {
+      console.error('Error getting calendar events:', error);
+      // Return empty array instead of throwing
+      return [];
+    }
+  }
+
+  async createCalendarEvent(event: Omit<CalendarEvent, 'id' | 'created_at' | 'updated_at' | 'user_id'>): Promise<CalendarEvent> {
+    try {
+      const response = await this.api.post<CalendarEvent>('/planner/calendar/events', event);
+      return response.data;
+    } catch (error) {
+      console.error('Error creating calendar event:', error);
+      throw new Error('Failed to create calendar event');
+    }
+  }
+
+  async syncWithGoogleCalendar(daysAhead: number = 7): Promise<any> {
+    try {
+      const response = await this.api.post('/planner/calendar/sync-google', {
+        days_ahead: daysAhead
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Error syncing with Google Calendar:', error);
+      return { success: false, error: 'Failed to sync with Google Calendar' };
+    }
+  }
+
+  // ============================================================================
+  // NOTE METHODS - UPDATED
+  // ============================================================================
+
+  async createNote(note: NoteCreate): Promise<Note> {
+    try {
+      const response = await this.api.post<Note>('/planner/notes', note);
+      return response.data;
+    } catch (error) {
+      console.error('Error creating note:', error);
+      throw new Error('Failed to create note');
+    }
+  }
+
+  async getNotes(limit: number = 20): Promise<Note[]> {
+    try {
+      const response = await this.api.get<Note[]>('/planner/notes', {
+        params: { limit }
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Error getting notes:', error);
+      return [];
+    }
+  }
+
+  async getNote(noteId: string): Promise<Note> {
+    try {
+      const response = await this.api.get<Note>(`/planner/notes/${noteId}`);
+      return response.data;
+    } catch (error) {
+      console.error('Error getting note:', error);
+      throw new Error('Failed to get note');
+    }
+  }
+
+  async updateNote(noteId: string, update: NoteUpdate): Promise<Note> {
+    try {
+      const response = await this.api.put<Note>(`/planner/notes/${noteId}`, update);
+      return response.data;
+    } catch (error) {
+      console.error('Error updating note:', error);
+      throw new Error('Failed to update note');
+    }
+  }
+
+  async deleteNote(noteId: string): Promise<void> {
+    try {
+      await this.api.delete(`/planner/notes/${noteId}`);
+    } catch (error) {
+      console.error('Error deleting note:', error);
+      throw new Error('Failed to delete note');
+    }
   }
 
   // ============================================================================
   // UTILITY METHODS
   // ============================================================================
 
-  private buildFilterParams(filter: TaskFilter): Record<string, any> {
-    const params: Record<string, any> = {};
-    
-    if (filter.status?.length) {
-      params.status = filter.status.join(',');
-    }
-    if (filter.priority?.length) {
-      params.priority = filter.priority.join(',');
-    }
-    if (filter.due_date_from) {
-      params.due_date_from = filter.due_date_from;
-    }
-    if (filter.due_date_to) {
-      params.due_date_to = filter.due_date_to;
-    }
-    if (filter.tags?.length) {
-      params.tags = filter.tags.join(',');
-    }
-    if (filter.search) {
-      params.search = filter.search;
-    }
-    
-    return params;
-  }
-
-  // Helper methods for UI
   getPriorityColor(priority: TaskPriority): string {
     switch (priority) {
       case TaskPriority.LOW:
@@ -436,6 +529,4 @@ class TaskService {
   }
 }
 
-// Export singleton instance
-export const taskService = new TaskService();
-export default taskService;
+export default new TaskService();

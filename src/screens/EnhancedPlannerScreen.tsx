@@ -20,7 +20,6 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Animatable from 'react-native-animatable';
 
 import { 
-  taskService, 
   Task, 
   TaskPriority, 
   TaskStatus, 
@@ -31,6 +30,7 @@ import {
   NoteCreate,
   CalendarEvent
 } from '../services/taskService';
+import taskService from '../services/taskService';
 
 const { width } = Dimensions.get('window');
 
@@ -68,6 +68,16 @@ const EnhancedPlannerScreen: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [dashboard, setDashboard] = useState<PlannerDashboard | null>(null);
+  
+  // Enhanced loading states
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [dashboardLoading, setDashboardLoading] = useState(false);
+  const [dashboardError, setDashboardError] = useState<string | null>(null);
+  const [tasksLoading, setTasksLoading] = useState(false);
+  const [tasksError, setTasksError] = useState<string | null>(null);
+  const [calendarLoading, setCalendarLoading] = useState(false);
+  const [calendarError, setCalendarError] = useState<string | null>(null);
 
   // Task states
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -88,19 +98,36 @@ const EnhancedPlannerScreen: React.FC = () => {
   }, []);
 
   const loadInitialData = async () => {
-    setLoading(true);
+    setIsLoading(true);
+    setError(null);
+    
     try {
-      await Promise.all([
-        loadDashboard(),
-        loadTasks(),
-        loadNotes(),
-        loadCalendarEvents()
-      ]);
+      console.log('🔄 Loading initial planner data...');
+      
+      // Load data with individual error handling
+      const promises = [
+        loadDashboard().catch(err => {
+          console.error('Dashboard load failed:', err);
+          return null; // Continue with other data
+        }),
+        loadTasks().catch(err => {
+          console.error('Tasks load failed:', err);
+          return null;
+        }),
+        loadCalendarEvents().catch(err => {
+          console.error('Calendar events load failed:', err);
+          return null;
+        })
+      ];
+
+      await Promise.allSettled(promises);
+      console.log('✅ Initial data loading completed');
+      
     } catch (error) {
-      console.error('Error loading planner data:', error);
-      Alert.alert('Error', 'Failed to load planner data');
+      console.error('❌ Error loading initial data:', error);
+      setError('Failed to load planner data. Please try again.');
     } finally {
-      setLoading(false);
+      setIsLoading(false);
     }
   };
 
@@ -116,19 +143,61 @@ const EnhancedPlannerScreen: React.FC = () => {
 
   const loadDashboard = async () => {
     try {
+      console.log('🔄 Loading dashboard...');
+      setDashboardLoading(true);
+      
       const dashboardData = await taskService.getPlannerDashboard();
+      console.log('✅ Dashboard loaded:', dashboardData);
+      
       setDashboard(dashboardData);
+      setDashboardError(null);
+      
     } catch (error) {
-      console.error('Error loading dashboard:', error);
+      console.error('❌ Error loading dashboard:', error);
+      setDashboardError('Failed to load dashboard');
+      
+      // Set empty dashboard to prevent crashes
+      setDashboard({
+        stats: {
+          total_tasks: 0,
+          completed_tasks: 0,
+          pending_tasks: 0,
+          overdue_tasks: 0,
+          completion_rate: 0,
+          total_notes: 0
+        },
+        upcoming_tasks: [],
+        recent_notes: [],
+        calendar_events: []
+      });
+    } finally {
+      setDashboardLoading(false);
     }
   };
 
   const loadTasks = async () => {
     try {
-      const tasksData = await taskService.getTasks();
+      console.log('🔄 Loading tasks...');
+      setTasksLoading(true);
+      
+      // Create a basic filter - don't pass undefined
+      const filter: TaskFilter = {
+        completed: false,
+        limit: 50
+      };
+      
+      const tasksData = await taskService.getTasks(filter);
+      console.log('✅ Tasks loaded:', tasksData.length);
+      
       setTasks(tasksData);
+      setTasksError(null);
+      
     } catch (error) {
-      console.error('Error loading tasks:', error);
+      console.error('❌ Error loading tasks:', error);
+      setTasksError('Failed to load tasks');
+      setTasks([]); // Set empty array to prevent crashes
+    } finally {
+      setTasksLoading(false);
     }
   };
 
@@ -143,18 +212,47 @@ const EnhancedPlannerScreen: React.FC = () => {
 
   const loadCalendarEvents = async () => {
     try {
-      const startDate = new Date();
-      const endDate = new Date();
-      endDate.setDate(endDate.getDate() + 30);
+      console.log('🔄 Loading calendar events...');
+      setCalendarLoading(true);
       
-      const events = await taskService.getCalendarEvents(
-        startDate.toISOString().split('T')[0],
-        endDate.toISOString().split('T')[0]
-      );
-      setCalendarEvents(events);
+      const startDate = new Date().toISOString().split('T')[0]; // Today
+      const endDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]; // 30 days from now
+      
+      console.log(`Loading events from ${startDate} to ${endDate}`);
+      
+      const eventsData = await taskService.getCalendarEvents(startDate, endDate);
+      console.log('✅ Calendar events loaded:', eventsData.length);
+      
+      setCalendarEvents(eventsData);
+      setCalendarError(null);
+      
     } catch (error) {
-      console.error('Error loading calendar events:', error);
+      console.error('❌ Error loading calendar events:', error);
+      setCalendarError('Failed to load calendar events');
+      setCalendarEvents([]); // Set empty array to prevent crashes
+    } finally {
+      setCalendarLoading(false);
     }
+  };
+
+  // Add retry functionality
+  const retryLoadData = async () => {
+    console.log('🔄 Retrying data load...');
+    await loadInitialData();
+  };
+
+  // Error boundary component
+  const renderErrorBoundary = (error: string | null, retryFunction: () => void) => {
+    if (!error) return null;
+    
+    return (
+      <View style={styles.errorContainer}>
+        <Text style={styles.errorText}>{error}</Text>
+        <TouchableOpacity style={styles.retryButton} onPress={retryFunction}>
+          <Text style={styles.retryButtonText}>Retry</Text>
+        </TouchableOpacity>
+      </View>
+    );
   };
 
   // ============================================================================
@@ -254,7 +352,7 @@ const EnhancedPlannerScreen: React.FC = () => {
           style={styles.syncButton}
           onPress={async () => {
             try {
-              await taskService.syncTasksWithCalendar();
+              await taskService.syncWithGoogleCalendar();
               Alert.alert('Success', 'Synced with Google Calendar');
             } catch (error) {
               Alert.alert('Error', 'Failed to sync with calendar');
@@ -1716,6 +1814,33 @@ const styles = StyleSheet.create({
     color: '#6B7280',
     marginTop: 8,
     textAlign: 'center',
+  },
+
+  // Enhanced Error Handling Styles
+  errorContainer: {
+    backgroundColor: '#ffe6e6',
+    padding: 15,
+    margin: 10,
+    borderRadius: 8,
+    borderLeft: 4,
+    borderLeftColor: '#ff4444',
+  },
+  errorText: {
+    color: '#cc0000',
+    fontSize: 14,
+    marginBottom: 10,
+  },
+  retryButton: {
+    backgroundColor: '#007AFF',
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+    borderRadius: 6,
+    alignSelf: 'flex-start',
+  },
+  retryButtonText: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: '600',
   },
 });
 
