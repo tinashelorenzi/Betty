@@ -12,6 +12,7 @@ import {
   Alert,
   Dimensions,
   ActivityIndicator,
+  Image,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Animatable from 'react-native-animatable';
@@ -187,6 +188,11 @@ const RegisterScreen: React.FC<RegisterScreenProps> = () => {
         >
           {/* Header */}
           <Animatable.View animation="fadeInDown" duration={1000} style={styles.header}>
+            <Image 
+              source={require('../../assets/images/logo.png')}
+              style={styles.logoImage}
+              resizeMode="contain"
+            />
             <Text style={styles.title}>Create Account</Text>
             <Text style={styles.subtitle}>Join Betty and boost your productivity</Text>
           </Animatable.View>
@@ -332,6 +338,11 @@ const styles = StyleSheet.create({
   header: {
     alignItems: 'center',
     marginBottom: 40,
+  },
+  logoImage: {
+    width: 80,
+    height: 80,
+    marginBottom: 20,
   },
   title: {
     fontSize: 32,

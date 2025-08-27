@@ -5,6 +5,7 @@ import {
   Text,
   StyleSheet,
   Dimensions,
+  Image,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Animatable from 'react-native-animatable';
@@ -38,7 +39,11 @@ const SplashScreen: React.FC<SplashScreenProps> = ({ navigation }) => {
           duration={1500}
           style={styles.logoContainer}
         >
-          <Text style={styles.logoText}>Betty</Text>
+          <Image 
+            source={require('../../assets/images/logo.png')}
+            style={styles.logoImage}
+            resizeMode="contain"
+          />
           <Text style={styles.taglineText}>Your AI Office Assistant</Text>
         </Animatable.View>
         
@@ -86,6 +91,11 @@ const styles = StyleSheet.create({
   logoContainer: {
     alignItems: 'center',
     marginBottom: 60,
+  },
+  logoImage: {
+    width: 120,
+    height: 120,
+    marginBottom: 20,
   },
   logoText: {
     fontSize: 56,

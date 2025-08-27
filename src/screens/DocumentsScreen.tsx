@@ -18,7 +18,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Animatable from 'react-native-animatable';
 import { useAuth } from '../contexts/AuthContext';
-import { useGoogleAuth } from '../hooks/useGoogleAuth';
+import { useNativeGoogleAuth } from '../hooks/useNativeGoogleAuth';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { RouteProp } from '@react-navigation/native';
 
@@ -48,13 +48,15 @@ const DocumentsScreen: React.FC<DocumentsScreenProps> = ({ navigation }) => {
   
   const { user: googleUser } = useAuth();
   
-  // FIXED: Use the updated hook with correct function names
+  // Use native Google auth hook
   const { 
     isConnected, 
-    exportProgress,           // NEW: Built-in progress tracking
-    exportToGoogleDocs,       // FIXED: Renamed from pushToGoogleDrive
-    generateDocument          // NEW: Secure document generation
-  } = useGoogleAuth();
+    isLoading: googleLoading,
+    userInfo,
+    connectGoogle,
+    disconnectGoogle,
+    checkStatus
+  } = useNativeGoogleAuth();
   
   // Mock documents state - replace with your actual context
   const [documents, setDocuments] = useState(mockDocuments);
@@ -68,21 +70,16 @@ const DocumentsScreen: React.FC<DocumentsScreenProps> = ({ navigation }) => {
     }));
   };
 
-  // FIXED: Use the new generateDocument function from the hook
+  // TODO: Implement document generation with native Google auth
   const handleCreateFromInput = async () => {
     if (newDocName.trim() === '' || isGenerating) return;
     setIsGenerating(true);
     
     try {
-      // Use the generateDocument function from the hook (secure)
-      const result = await generateDocument(newDocName.trim());
-      
-      if (result.success && result.content) {
-        addDocument(newDocName.trim(), result.content);
-        setNewDocName('');
-      } else {
-        throw new Error(result.error || 'Failed to generate document');
-      }
+      // For now, create a simple document
+      const content = `# ${newDocName.trim()}\n\nThis is a new document created with Betty.`;
+      addDocument(newDocName.trim(), content);
+      setNewDocName('');
       
     } catch (error: any) { 
       console.error("Document generation failed:", error);
@@ -92,7 +89,7 @@ const DocumentsScreen: React.FC<DocumentsScreenProps> = ({ navigation }) => {
     }
   };
 
-  // FIXED: Use the new exportToGoogleDocs function from the hook
+  // TODO: Implement Google Docs export with native Google auth
   const handleExportToGoogle = async () => {
     if (!isConnected) {
       Alert.alert(
@@ -108,21 +105,11 @@ const DocumentsScreen: React.FC<DocumentsScreenProps> = ({ navigation }) => {
     
     if (!selectedDoc) return;
     
-    try {
-      // Use the exportToGoogleDocs function from the hook
-      const result = await exportToGoogleDocs(selectedDoc, documents[selectedDoc]);
-      
-      if (result.success) {
-        setExportResult(result);
-        setModalVisible(true);
-      } else {
-        throw new Error(result.error || 'Export failed');
-      }
-      
-    } catch (error: any) {
-      console.error('Export failed:', error);
-      Alert.alert('Export Failed', `Failed to export to Google Docs: ${error.message}`);
-    }
+    Alert.alert(
+      'Export Feature',
+      'Google Docs export will be implemented with the native Google authentication.',
+      [{ text: 'OK' }]
+    );
   };
 
   const openInGoogleDocs = async () => {
@@ -155,34 +142,14 @@ const DocumentsScreen: React.FC<DocumentsScreenProps> = ({ navigation }) => {
   if (selectedDoc) {
     return (
       <SafeAreaView style={styles.container}>
-        {/* FIXED: Use exportProgress from hook instead of local state */}
-        <Modal visible={modalVisible || exportProgress.isExporting} transparent animationType="fade">
+        <Modal visible={modalVisible} transparent animationType="fade">
           <View style={styles.modalOverlay}>
             <Animatable.View
               animation="zoomIn"
               duration={300}
               style={styles.enhancedModalContent}
             >
-              {exportProgress.isExporting ? (
-                // Export Progress View - Uses hook's progress tracking
-                <View style={styles.modalHeader}>
-                  <View style={styles.loadingIcon}>
-                    <ActivityIndicator size="large" color="#4285F4" />
-                  </View>
-                  <Text style={styles.modalTitle}>Exporting to Google Docs</Text>
-                  <View style={styles.progressContainer}>
-                    <View style={styles.progressBar}>
-                      <View 
-                        style={[
-                          styles.progressFill, 
-                          { width: `${exportProgress.progress}%` }
-                        ]} 
-                      />
-                    </View>
-                    <Text style={styles.progressText}>{exportProgress.message}</Text>
-                  </View>
-                </View>
-              ) : exportResult ? (
+              {exportResult ? (
                 // Success View
                 <>
                   <View style={styles.modalHeader}>
@@ -256,37 +223,26 @@ const DocumentsScreen: React.FC<DocumentsScreenProps> = ({ navigation }) => {
             </Text>
           </ScrollView>
           
-          {/* FIXED: Use exportProgress.isExporting instead of local isExporting */}
           <TouchableOpacity 
             style={[
-              isConnected ? styles.googleDocButton : styles.googleDocButtonDisabled,
-              exportProgress.isExporting && styles.googleDocButtonExporting
+              isConnected ? styles.googleDocButton : styles.googleDocButtonDisabled
             ]} 
             onPress={handleExportToGoogle}
-            disabled={!isConnected || exportProgress.isExporting}
+            disabled={!isConnected}
           >
             <LinearGradient
               colors={
                 !isConnected 
                   ? ['#9ca3af', '#6b7280']
-                  : exportProgress.isExporting 
-                    ? ['#93c5fd', '#60a5fa'] 
-                    : ['#4285f4', '#1a73e8']
+                  : ['#4285f4', '#1a73e8']
               }
               style={styles.googleDocButtonGradient}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 0 }}
             >
-              {exportProgress.isExporting ? (
-                <ActivityIndicator color="#fff" size="small" />
-              ) : (
-                <Ionicons name="logo-google" size={20} color="#fff" />
-              )}
+              <Ionicons name="logo-google" size={20} color="#fff" />
               <Text style={styles.googleDocButtonText}>
-                {exportProgress.isExporting ? 
-                  `Exporting... ${exportProgress.progress}%` : 
-                  isConnected ? 'Export to Google Docs' : 'Connect Google to Export'
-                }
+                {isConnected ? 'Export to Google Docs' : 'Connect Google to Export'}
               </Text>
             </LinearGradient>
           </TouchableOpacity>

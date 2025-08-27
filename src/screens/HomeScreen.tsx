@@ -8,6 +8,7 @@ import {
   StyleSheet,
   Dimensions,
   SafeAreaView,
+  Image,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -190,9 +191,16 @@ const HomeScreen: React.FC<HomeScreenProps> = () => {
       <ScrollView showsVerticalScrollIndicator={false}>
         {/* Header */}
         <Animatable.View animation="fadeInDown" style={styles.header}>
-          <View>
-            <Text style={styles.greeting}>{getGreeting()},</Text>
-            <Text style={styles.userName}>{user?.first_name || 'User'}!</Text>
+          <View style={styles.headerLeft}>
+            <Image 
+              source={require('../../assets/images/logo.png')}
+              style={styles.logoImage}
+              resizeMode="contain"
+            />
+            <View>
+              <Text style={styles.greeting}>{getGreeting()},</Text>
+              <Text style={styles.userName}>{user?.first_name || 'User'}!</Text>
+            </View>
           </View>
           <TouchableOpacity style={styles.notificationButton}>
             <Ionicons name="notifications-outline" size={24} color="#333" />
@@ -287,6 +295,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 20,
     paddingBottom: 24,
+  },
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  logoImage: {
+    width: 40,
+    height: 40,
   },
   greeting: {
     fontSize: 16,

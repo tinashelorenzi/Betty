@@ -19,7 +19,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Animatable from 'react-native-animatable';
 import { useNavigation, NavigationProp, useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../contexts/AuthContext';
-import { useGoogleAuth } from '../hooks/useGoogleAuth';
+import { useNativeGoogleAuth } from '../hooks/useNativeGoogleAuth';
 import GoogleConnectButton from '../components/GoogleConnectButton';
 
 import { 
@@ -119,6 +119,13 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({
 }) => (
   <LinearGradient colors={['#667eea', '#764ba2']} style={styles.header}>
     <View style={styles.headerContent}>
+      <View style={styles.logoContainer}>
+        <Image 
+          source={require('../../assets/images/logo.png')}
+          style={styles.logoImage}
+          resizeMode="contain"
+        />
+      </View>
       <TouchableOpacity onPress={onChangeAvatar} style={styles.avatarContainer}>
         {avatarLoading ? (
           <View style={styles.avatarLoader}>
@@ -163,7 +170,7 @@ const ProfileHeader: React.FC<ProfileHeaderProps> = ({
 const ProfileScreen: React.FC = () => {
   const navigation = useNavigation<ProfileScreenNavigationProp>();
   const { user, logout } = useAuth();
-  const { isConnected, userInfo } = useGoogleAuth();
+  const { isConnected, userInfo } = useNativeGoogleAuth();
   
   // State management
   const [profile, setProfile] = useState<UserResponse | null>(null);
@@ -601,6 +608,13 @@ const styles = StyleSheet.create({
   headerContent: {
     flexDirection: 'row',
     alignItems: 'center',
+  },
+  logoContainer: {
+    marginRight: 16,
+  },
+  logoImage: {
+    width: 50,
+    height: 50,
   },
   avatarContainer: {
     position: 'relative',

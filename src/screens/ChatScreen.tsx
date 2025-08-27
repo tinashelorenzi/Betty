@@ -22,6 +22,7 @@ import { MessageHistory, ChatMessage, ChatResponse, MessageType } from '../types
 import { RootStackParamList } from '../navigation/AppNavigator';
 import TypingIndicator from '../components/TypingIndicator';
 import DocumentFileMessage from '../components/DocumentFileMessage';
+import { useTextToSpeech } from '../hooks/useTextToSpeech';
 
 type ChatScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Chat'>;
 type ChatScreenRouteProp = RouteProp<RootStackParamList, 'Chat'>;
@@ -48,6 +49,9 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ navigation, route }) => {
   const [connectionError, setConnectionError] = useState(false);
   const [aiTypingMessage, setAiTypingMessage] = useState<string>('Betty is typing');
   const flatListRef = useRef<FlatList>(null);
+  
+  // Text-to-speech functionality
+  const { isSpeaking, speak, stop, isEnabled, toggleEnabled, voiceSpeed, setVoiceSpeed } = useTextToSpeech();
 
   // Random typing messages for variety
   const typingMessages = [
@@ -192,6 +196,13 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ navigation, route }) => {
       };
 
       setMessages(prev => [...prev, aiMessage]);
+
+      // Automatically speak Betty's response
+      if (isEnabled && response.content) {
+        setTimeout(() => {
+          speak(response.content);
+        }, 500); // Small delay to ensure message is rendered
+      }
 
       // Handle document creation - NEW TELEGRAM-STYLE APPROACH
       if (response.document_created && response.document_content) {
@@ -341,6 +352,30 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ navigation, route }) => {
                 • {item.processing_time.toFixed(1)}s
               </Text>
             )}
+            
+            {/* Audio icon for Betty's messages */}
+            {!isUser && (
+              <TouchableOpacity
+                style={[
+                  styles.audioButton,
+                  isSpeaking && styles.audioButtonSpeaking
+                ]}
+                onPress={() => {
+                  if (isSpeaking) {
+                    stop();
+                  } else {
+                    speak(item.content);
+                  }
+                }}
+                disabled={!isEnabled}
+              >
+                <Ionicons 
+                  name={isSpeaking ? "volume-high" : "volume-medium"} 
+                  size={16} 
+                  color={isEnabled ? "#667eea" : "#cbd5e1"} 
+                />
+              </TouchableOpacity>
+            )}
           </View>
         </View>
         
@@ -445,6 +480,18 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ navigation, route }) => {
         </View>
         
         <View style={styles.headerRight}>
+          {/* Voice toggle button */}
+          <TouchableOpacity
+            style={styles.voiceToggleButton}
+            onPress={toggleEnabled}
+          >
+            <Ionicons 
+              name={isEnabled ? "volume-high" : "volume-mute"} 
+              size={20} 
+              color={isEnabled ? "#667eea" : "#94a3b8"} 
+            />
+          </TouchableOpacity>
+          
           {conversationId && (
             <View style={styles.conversationIndicator}>
               <View style={[
@@ -614,6 +661,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingRight: 16,
+    gap: 12,
+  },
+  voiceToggleButton: {
+    padding: 8,
+    borderRadius: 8,
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
   },
   conversationIndicator: {
     alignItems: 'center',
@@ -746,6 +801,14 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#94a3b8',
     fontStyle: 'italic',
+  },
+  audioButton: {
+    padding: 4,
+    marginLeft: 8,
+  },
+  audioButtonSpeaking: {
+    backgroundColor: '#f0f4ff',
+    borderRadius: 4,
   },
   aiAvatar: {
     width: 32,

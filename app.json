@@ -6,7 +6,7 @@
     "scheme": "betty",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/images/logo.png",
     "userInterfaceStyle": "light",
     "splash": {
       "image": "./assets/images/logo.png",
@@ -32,7 +32,7 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
+        "foregroundImage": "./assets/images/logo.png",
         "backgroundColor": "#FFFFFF"
       },
       "package": "com.betty.officegenius",
@@ -57,7 +57,7 @@
     },
     "extra": {
       "googleClientId": "1092345143344-jv2v1ke2e01f4k73peuhjuq5kn5ocr6j.apps.googleusercontent.com",
-      "apiBaseUrl": "http://10.0.0.166:8000",
+      "apiBaseUrl": "https://api.bettygenius.co.za",
       "eas": {
         "projectId": "b793f9b9-eb2a-44c3-a453-418d29d6249f"
       }

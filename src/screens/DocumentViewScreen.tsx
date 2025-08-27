@@ -20,7 +20,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import * as Animatable from 'react-native-animatable';
 import Markdown from 'react-native-markdown-display';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useGoogleAuth } from '../hooks/useGoogleAuth';
+import { useNativeGoogleAuth } from '../hooks/useNativeGoogleAuth';
 
 const { width, height } = Dimensions.get('window');
 
@@ -45,7 +45,7 @@ const DocumentViewScreen: React.FC<DocumentViewScreenProps> = ({ navigation, rou
   const scrollViewRef = useRef<ScrollView>(null);
   
   // Add the Google Auth hook
-  const { isConnected, pushToGoogleDrive, checkStatus } = useGoogleAuth();
+  const { isConnected, checkStatus } = useNativeGoogleAuth();
 
   const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:8000';
 
@@ -74,7 +74,7 @@ const DocumentViewScreen: React.FC<DocumentViewScreenProps> = ({ navigation, rou
     }
   };
 
-  // Updated push to Google Drive function
+  // TODO: Implement Google Drive push with native Google auth
   const handlePushToGoogleDrive = async () => {
     // Check if Google is connected first
     if (!isConnected) {
@@ -95,55 +95,11 @@ const DocumentViewScreen: React.FC<DocumentViewScreenProps> = ({ navigation, rou
       return;
     }
 
-    setIsPushing(true);
-    try {
-      const success = await pushToGoogleDrive(title, content);
-      
-      if (success) {
-        Alert.alert(
-          'Success! 🎉', 
-          'Document has been created in your Google Drive.',
-          [
-            {
-              text: 'OK',
-              style: 'default'
-            }
-          ]
-        );
-      } else {
-        throw new Error('Failed to create document');
-      }
-    } catch (error: any) {
-      console.error('Error pushing to Google Drive:', error);
-      
-      let errorMessage = 'Failed to push document to Google Drive.';
-      
-      if (error.message?.includes('not connected')) {
-        errorMessage = 'Google account is not connected. Please reconnect your Google account.';
-        Alert.alert(
-          'Connection Error',
-          errorMessage,
-          [
-            {
-              text: 'Cancel',
-              style: 'cancel'
-            },
-            {
-              text: 'Go to Profile',
-              onPress: () => navigation.navigate('Profile')
-            }
-          ]
-        );
-      } else {
-        Alert.alert(
-          'Error',
-          error.message || errorMessage,
-          [{ text: 'OK' }]
-        );
-      }
-    } finally {
-      setIsPushing(false);
-    }
+    Alert.alert(
+      'Google Drive Export',
+      'Google Drive export will be implemented with the native Google authentication.',
+      [{ text: 'OK' }]
+    );
   };
 
   // Check Google connection status when component mounts

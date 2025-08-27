@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useGoogleAuth } from '../hooks/useGoogleAuth';
+import { useNativeGoogleAuth } from '../hooks/useNativeGoogleAuth';
 
 interface GoogleConnectButtonProps {
   style?: any;
@@ -29,7 +29,7 @@ const GoogleConnectButton: React.FC<GoogleConnectButtonProps> = ({
     connectGoogle, 
     disconnectGoogle, 
     checkStatus 
-  } = useGoogleAuth();
+  } = useNativeGoogleAuth();
 
   const [isConnecting, setIsConnecting] = useState(false);
 
@@ -37,53 +37,42 @@ const GoogleConnectButton: React.FC<GoogleConnectButtonProps> = ({
     try {
       setIsConnecting(true);
       
-      if (Platform.OS === 'web') {
-        // For web, the OAuth will redirect in the same window
-        await connectGoogle();
-        // No need for additional handling as the page will redirect
-      } else {
-        // For mobile, handle the OAuth flow
-        const authUrl = await connectGoogle();
-        
-        if (authUrl) {
-          // Show instructions for mobile users
+      // Use platform-appropriate Google Sign-In
+      const success = await connectGoogle();
+      
+      if (success) {
+        if (Platform.OS === 'web') {
+          // For web, show a different message since the page will redirect
           Alert.alert(
-            'Complete Authentication',
-            'Please complete the Google authentication in the browser that just opened. After authorizing, return to this app.',
-            [
-              {
-                text: 'OK',
-                onPress: () => {
-                  // Start checking status periodically
-                  const checkInterval = setInterval(async () => {
-                    await checkStatus();
-                    if (isConnected) {
-                      clearInterval(checkInterval);
-                      Alert.alert(
-                        'Success! 🎉',
-                        'Your Google account has been connected successfully.',
-                        [{ text: 'Great!' }]
-                      );
-                      onConnectionChange?.(true);
-                    }
-                  }, 3000);
-                  
-                  // Stop checking after 2 minutes
-                  setTimeout(() => {
-                    clearInterval(checkInterval);
-                  }, 120000);
-                }
-              }
-            ]
+            'Redirecting to Google',
+            'You will be redirected to Google to complete the authentication. Please return to Betty after authorizing.',
+            [{ text: 'OK' }]
+          );
+        } else {
+          Alert.alert(
+            'Success! 🎉',
+            'Your Google account has been connected successfully.',
+            [{ text: 'Great!' }]
           );
         }
+        onConnectionChange?.(true);
       }
       
     } catch (error: any) {
       console.error('Connection error:', error);
+      
+      let errorMessage = error.message || 'Failed to connect to Google. Please try again.';
+      
+      // Provide platform-specific error messages
+      if (error.message?.includes('not-implemented method on web platform')) {
+        errorMessage = 'Google Sign-In is not available on web. Please use the mobile app for Google integration.';
+      } else if (error.message?.includes('Google Play Services not available')) {
+        errorMessage = 'Google Play Services not available. Please ensure you have Google Play Services installed.';
+      }
+      
       Alert.alert(
         'Connection Failed',
-        error.message || 'Failed to connect to Google. Please try again.',
+        errorMessage,
         [{ text: 'OK' }]
       );
     } finally {
@@ -108,10 +97,10 @@ const GoogleConnectButton: React.FC<GoogleConnectButtonProps> = ({
         } else {
           Alert.alert(
             'Not Connected',
-            'Google account is not yet connected. Please make sure you completed the authentication in your browser.',
+            'Google account is not connected. Please connect your Google account.',
             [
               {
-                text: 'Try Again',
+                text: 'Connect Now',
                 onPress: handleConnect
               },
               {
