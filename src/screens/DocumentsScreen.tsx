@@ -21,6 +21,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useNativeGoogleAuth } from '../hooks/useNativeGoogleAuth';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { RouteProp } from '@react-navigation/native';
+import ErrorBoundary from '../components/ErrorBoundary';
 
 interface DocumentsScreenProps {
   navigation: StackNavigationProp<any>;
@@ -223,29 +224,41 @@ const DocumentsScreen: React.FC<DocumentsScreenProps> = ({ navigation }) => {
             </Text>
           </ScrollView>
           
-          <TouchableOpacity 
-            style={[
-              isConnected ? styles.googleDocButton : styles.googleDocButtonDisabled
-            ]} 
-            onPress={handleExportToGoogle}
-            disabled={!isConnected}
+          <ErrorBoundary 
+            fallback={({ error, resetError }) => (
+              <View style={styles.errorContainer}>
+                <Text style={styles.errorText}>Google export unavailable</Text>
+                <Text style={styles.errorSubtext}>{error.message}</Text>
+                <TouchableOpacity style={styles.retryButton} onPress={resetError}>
+                  <Text style={styles.retryButtonText}>Retry Google Export</Text>
+                </TouchableOpacity>
+              </View>
+            )}
           >
-            <LinearGradient
-              colors={
-                !isConnected 
-                  ? ['#9ca3af', '#6b7280']
-                  : ['#4285f4', '#1a73e8']
-              }
-              style={styles.googleDocButtonGradient}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
+            <TouchableOpacity 
+              style={[
+                isConnected ? styles.googleDocButton : styles.googleDocButtonDisabled
+              ]} 
+              onPress={handleExportToGoogle}
+              disabled={!isConnected}
             >
-              <Ionicons name="logo-google" size={20} color="#fff" />
-              <Text style={styles.googleDocButtonText}>
-                {isConnected ? 'Export to Google Docs' : 'Connect Google to Export'}
-              </Text>
-            </LinearGradient>
-          </TouchableOpacity>
+              <LinearGradient
+                colors={
+                  !isConnected 
+                    ? ['#9ca3af', '#6b7280']
+                    : ['#4285f4', '#1a73e8']
+                }
+                style={styles.googleDocButtonGradient}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+              >
+                <Ionicons name="logo-google" size={20} color="#fff" />
+                <Text style={styles.googleDocButtonText}>
+                  {isConnected ? 'Export to Google Docs' : 'Connect Google to Export'}
+                </Text>
+              </LinearGradient>
+            </TouchableOpacity>
+          </ErrorBoundary>
         </View>
       </SafeAreaView>
     );
@@ -557,6 +570,38 @@ const styles = StyleSheet.create({
     color: '#64748b',
     fontSize: 16,
     fontWeight: '600',
+  },
+
+  // Error Styles
+  errorContainer: {
+    backgroundColor: '#fff5f5',
+    padding: 15,
+    borderRadius: 8,
+    borderColor: '#fed7d7',
+    borderWidth: 1,
+    marginBottom: 15,
+  },
+  errorText: {
+    color: '#e53e3e',
+    fontSize: 14,
+    marginBottom: 5,
+  },
+  errorSubtext: {
+    color: '#a0a0a0',
+    fontSize: 12,
+    marginBottom: 10,
+  },
+  retryButton: {
+    backgroundColor: '#3182ce',
+    paddingHorizontal: 15,
+    paddingVertical: 8,
+    borderRadius: 6,
+    alignSelf: 'flex-start',
+  },
+  retryButtonText: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: '500',
   },
 });
 

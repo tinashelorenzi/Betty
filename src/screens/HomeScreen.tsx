@@ -1,4 +1,4 @@
-// src/screens/HomeScreen.tsx - Updated with chat navigation
+// src/screens/HomeScreen.tsx - Updated with chat navigation and error boundary protection
 import React, { useState, useEffect } from 'react';
 import {
   View,
@@ -19,6 +19,8 @@ import { StackNavigationProp } from '@react-navigation/stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import chatService, { ChatStats } from '../services/chatService';
 import GoogleConnectButton from '../components/GoogleConnectButton';
+import ErrorBoundary from '../components/ErrorBoundary';
+import { useNativeGoogleAuth } from '../hooks/useNativeGoogleAuth';
 
 const { width } = Dimensions.get('window');
 
@@ -78,6 +80,57 @@ const RecentActivity: React.FC<RecentActivityProps> = ({ type, title, time, icon
   </TouchableOpacity>
 );
 
+// Separate component for Google-related content with error boundary
+const GoogleIntegrationSection: React.FC = () => {
+  const [initError, setInitError] = useState<string | null>(null);
+  
+  try {
+    const { isConnected, isLoading, userInfo, connectGoogle } = useNativeGoogleAuth();
+    
+    useEffect(() => {
+      // Log the initialization
+      console.log('GoogleIntegrationSection mounted', {
+        isConnected,
+        isLoading,
+        hasUserInfo: !!userInfo
+      });
+    }, [isConnected, isLoading, userInfo]);
+
+    if (initError) {
+      return (
+        <View style={styles.errorContainer}>
+          <Text style={styles.errorText}>Google services unavailable: {initError}</Text>
+        </View>
+      );
+    }
+
+    return (
+      <View style={styles.googleSection}>
+        <Text style={styles.sectionTitle}>Google Integration</Text>
+        {isLoading ? (
+          <Text>Loading Google services...</Text>
+        ) : isConnected ? (
+          <View>
+            <Text style={styles.successText}>✓ Connected to Google</Text>
+            {userInfo && <Text>Welcome, {userInfo.name}</Text>}
+          </View>
+        ) : (
+          <Text style={styles.infoText}>Google not connected</Text>
+        )}
+      </View>
+    );
+  } catch (error: any) {
+    console.error('Error in GoogleIntegrationSection:', error);
+    setInitError(error.message);
+    
+    return (
+      <View style={styles.errorContainer}>
+        <Text style={styles.errorText}>Google services failed to initialize</Text>
+      </View>
+    );
+  }
+};
+
 interface HomeScreenProps {
   // Remove navigation prop since we'll use useNavigation hook
 }
@@ -105,174 +158,161 @@ const HomeScreen: React.FC<HomeScreenProps> = () => {
     }
   };
 
-  const startNewChat = async () => {
-    navigation.navigate('Chat', { isNew: true, title: 'New Chat' });
+  const handleQuickAction = (action: string) => {
+    switch (action) {
+      case 'chat':
+        navigation.navigate('Chat', { isNew: true, title: 'New Chat' });
+        break;
+      case 'documents':
+        navigation.navigate('Documents' as any);
+        break;
+      case 'planner':
+        navigation.navigate('EnhancedPlanner');
+        break;
+      case 'assistant':
+        navigation.navigate('Assistant' as any);
+        break;
+      default:
+        break;
+    }
   };
 
-  const viewConversations = () => {
-    navigation.navigate('Conversations');
-  };
-
-  const quickActions = [
-    {
-      icon: 'chatbubble-ellipses' as keyof typeof Ionicons.glyphMap,
-      title: 'Start Chat',
-      subtitle: 'Talk to Betty AI',
-      gradient: ['#667eea', '#764ba2'] as [string, string],
-      onPress: startNewChat,
-    },
-    {
-      icon: 'document-text' as keyof typeof Ionicons.glyphMap,
-      title: 'New Document',
-      subtitle: 'Create & analyze',
-      gradient: ['#f093fb', '#f5576c'] as [string, string],
-      onPress: () => console.log('Navigate to documents'),
-    },
-    {
-      icon: 'calendar' as keyof typeof Ionicons.glyphMap,
-      title: 'Plan Tasks',
-      subtitle: 'Organize your day',
-      gradient: ['#4facfe', '#00f2fe'] as [string, string],
-      onPress: () => console.log('Navigate to planner'),
-    },
-    {
-      icon: 'analytics' as keyof typeof Ionicons.glyphMap,
-      title: 'Analytics',
-      subtitle: 'View insights',
-      gradient: ['#43e97b', '#38f9d7'] as [string, string],
-      onPress: () => console.log('View analytics'),
-    },
-  ];
-
-  const GoogleIntegrationSection = () => (
-    <View style={styles.sectionContainer}>
-      <View style={styles.sectionHeader}>
-        <Ionicons name="cloud-upload" size={24} color="#1E40AF" />
-        <Text style={styles.sectionTitle}>Google Integration</Text>
-      </View>
-      <Text style={styles.sectionDescription}>
-        Connect your Google account to push documents directly to Google Drive, 
-        access your calendar, and sync your data across devices.
-      </Text>
-      <GoogleConnectButton style={styles.googleButton} />
-    </View>
-  );
-
-  const recentActivities = [
-    {
-      type: 'Chat',
-      title: chatStats.total_conversations > 0 ? `${chatStats.total_conversations} conversations` : 'No conversations yet',
-      time: chatStats.messages_today > 0 ? `${chatStats.messages_today} messages today` : 'Start chatting',
-      icon: 'chatbubble' as keyof typeof Ionicons.glyphMap,
-    },
-    {
-      type: 'Document',
-      title: 'Q4 Sales Report Analysis',
-      time: '2h ago',
-      icon: 'document-text' as keyof typeof Ionicons.glyphMap,
-    },
-    {
-      type: 'Task',
-      title: 'Meeting with Client ABC',
-      time: '1d ago',
-      icon: 'checkmark-circle' as keyof typeof Ionicons.glyphMap,
-    },
-  ];
-
-  const getGreeting = () => {
-    const hour = new Date().getHours();
-    if (hour < 12) return 'Good morning';
-    if (hour < 18) return 'Good afternoon';
-    return 'Good evening';
-  };
+  const welcomeName = user ? 
+    user.first_name || user.email || 'User' : 
+    'User';
 
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView showsVerticalScrollIndicator={false}>
+      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
         {/* Header */}
-        <Animatable.View animation="fadeInDown" style={styles.header}>
+        <View style={styles.header}>
           <View style={styles.headerLeft}>
             <Image 
-              source={require('../../assets/images/logo.png')}
-              style={styles.logoImage}
+              source={require('../../assets/images/logo.png')} 
+              style={styles.logoImage} 
               resizeMode="contain"
             />
-            <View>
-              <Text style={styles.greeting}>{getGreeting()},</Text>
-              <Text style={styles.userName}>{user?.first_name || 'User'}!</Text>
-            </View>
+            <Text style={styles.welcome}>Welcome back, {welcomeName}!</Text>
           </View>
-          <TouchableOpacity style={styles.notificationButton}>
-            <Ionicons name="notifications-outline" size={24} color="#333" />
-            <View style={styles.notificationBadge} />
-          </TouchableOpacity>
-        </Animatable.View>
+        </View>
 
-        {/* Chat Quick Access */}
-        <Animatable.View animation="fadeInUp" delay={200} style={styles.chatQuickAccess}>
-          <Text style={styles.sectionTitle}>Betty AI Assistant</Text>
-          <View style={styles.chatActions}>
-            <TouchableOpacity style={styles.primaryChatButton} onPress={startNewChat}>
-              <LinearGradient
-                colors={['#667eea', '#764ba2']}
-                style={styles.primaryChatGradient}
-              >
-                <Ionicons name="add" size={24} color="white" />
-                <Text style={styles.primaryChatText}>New Chat</Text>
-              </LinearGradient>
-            </TouchableOpacity>
-            
-            {chatStats.total_conversations > 0 && (
-              <TouchableOpacity style={styles.secondaryChatButton} onPress={viewConversations}>
-                <Ionicons name="chatbubbles-outline" size={20} color="#667eea" />
-                <Text style={styles.secondaryChatText}>
-                  {chatStats.total_conversations} Conversations
-                </Text>
+        {/* Google Integration Section with Error Boundary */}
+        <ErrorBoundary 
+          fallback={({ error, resetError }) => (
+            <View style={styles.googleErrorContainer}>
+              <Text style={styles.errorText}>Google services unavailable</Text>
+              <Text style={styles.errorSubtext}>{error.message}</Text>
+              <TouchableOpacity style={styles.smallRetryButton} onPress={resetError}>
+                <Text style={styles.retryButtonText}>Retry Google Services</Text>
               </TouchableOpacity>
-            )}
-          </View>
-          
-          {chatStats.messages_today > 0 && (
-            <View style={styles.chatStats}>
-              <Text style={styles.chatStatsText}>
-                {chatStats.messages_today} messages sent today
-              </Text>
             </View>
           )}
-        </Animatable.View>
-
-        {/* Google Integration Section */}
-        <Animatable.View animation="fadeInUp" delay={300}>
+        >
           <GoogleIntegrationSection />
-        </Animatable.View>
+        </ErrorBoundary>
 
         {/* Quick Actions */}
-        <Animatable.View animation="fadeInUp" delay={400} style={styles.section}>
+        <Animatable.View animation="fadeInUp" delay={200} style={styles.section}>
           <Text style={styles.sectionTitle}>Quick Actions</Text>
-          <View style={styles.quickActions}>
-            {quickActions.map((action, index) => (
-              <QuickAction
-                key={action.title}
-                {...action}
-                delay={600 + index * 100}
-              />
-            ))}
+          <Text style={styles.sectionDescription}>
+            Get started with Betty's features
+          </Text>
+          
+          <View style={styles.quickActionsGrid}>
+            <QuickAction
+              icon="chatbubble-ellipses"
+              title="Chat with Betty"
+              subtitle="Ask questions and get help"
+              gradient={['#667eea', '#764ba2']}
+              onPress={() => handleQuickAction('chat')}
+              delay={300}
+            />
+            
+            <QuickAction
+              icon="document-text"
+              title="Documents"
+              subtitle="Create and manage documents"
+              gradient={['#f093fb', '#f5576c']}
+              onPress={() => handleQuickAction('documents')}
+              delay={400}
+            />
+            
+            <QuickAction
+              icon="calendar"
+              title="Planner"
+              subtitle="Organize tasks and schedule"
+              gradient={['#4facfe', '#00f2fe']}
+              onPress={() => handleQuickAction('planner')}
+              delay={500}
+            />
+            
+            <QuickAction
+              icon="bulb"
+              title="AI Assistant"
+              subtitle="Explore AI features"
+              gradient={['#43e97b', '#38f9d7']}
+              onPress={() => handleQuickAction('assistant')}
+              delay={600}
+            />
+          </View>
+        </Animatable.View>
+
+        {/* Chat Stats */}
+        <Animatable.View animation="fadeInUp" delay={700} style={styles.section}>
+          <Text style={styles.sectionTitle}>Your Activity</Text>
+          
+          <View style={styles.statsGrid}>
+            <View style={styles.statCard}>
+              <Ionicons name="chatbubble" size={24} color="#667eea" />
+              <Text style={styles.statValue}>{chatStats.total_conversations}</Text>
+              <Text style={styles.statLabel}>Conversations</Text>
+            </View>
+            
+            <View style={styles.statCard}>
+              <Ionicons name="mail" size={24} color="#10b981" />
+              <Text style={styles.statValue}>{chatStats.total_messages}</Text>
+              <Text style={styles.statLabel}>Messages</Text>
+            </View>
+            
+            <View style={styles.statCard}>
+              <Ionicons name="today" size={24} color="#f59e0b" />
+              <Text style={styles.statValue}>{chatStats.messages_today}</Text>
+              <Text style={styles.statLabel}>Today</Text>
+            </View>
+            
+            <View style={styles.statCard}>
+              <Ionicons name="trending-up" size={24} color="#ef4444" />
+              <Text style={styles.statValue}>{chatStats.avg_messages_per_conversation.toFixed(1)}</Text>
+              <Text style={styles.statLabel}>Avg/Conv</Text>
+            </View>
           </View>
         </Animatable.View>
 
         {/* Recent Activity */}
         <Animatable.View animation="fadeInUp" delay={800} style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Recent Activity</Text>
-            <TouchableOpacity>
-              <Text style={styles.seeAllText}>See all</Text>
-            </TouchableOpacity>
-          </View>
+          <Text style={styles.sectionTitle}>Recent Activity</Text>
           
-          <View style={styles.recentActivities}>
-            {recentActivities.map((activity, index) => (
-              <RecentActivity key={index} {...activity} />
-            ))}
+          <View style={styles.recentActivity}>
+            <RecentActivity
+              type="Chat"
+              title="Asked about project planning"
+              time="2 hours ago"
+              icon="chatbubble"
+            />
+            
+            <RecentActivity
+              type="Document"
+              title="Created business proposal"
+              time="Yesterday"
+              icon="document-text"
+            />
+            
+            <RecentActivity
+              type="Task"
+              title="Completed weekly review"
+              time="2 days ago"
+              icon="checkmark-circle"
+            />
           </View>
         </Animatable.View>
 
@@ -288,148 +328,68 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#f8fafc',
   },
+  scrollView: {
+    flex: 1,
+  },
   header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
     paddingHorizontal: 20,
     paddingTop: 20,
-    paddingBottom: 24,
+    paddingBottom: 10,
   },
   headerLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
   },
   logoImage: {
     width: 40,
     height: 40,
+    marginRight: 12,
   },
-  greeting: {
-    fontSize: 16,
-    color: '#64748b',
-    marginBottom: 4,
-  },
-  userName: {
-    fontSize: 28,
+  welcome: {
+    fontSize: 24,
     fontWeight: 'bold',
     color: '#1e293b',
   },
-  notificationButton: {
-    position: 'relative',
-    padding: 8,
-  },
-  notificationBadge: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#ef4444',
-  },
-  
-  // Chat Quick Access Styles
-  chatQuickAccess: {
-    paddingHorizontal: 20,
-    marginBottom: 32,
-  },
-  chatActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  primaryChatButton: {
-    flex: 1,
-    marginRight: 12,
-  },
-  primaryChatGradient: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 16,
-    paddingHorizontal: 24,
-    borderRadius: 16,
-  },
-  primaryChatText: {
-    color: 'white',
-    fontSize: 16,
-    fontWeight: '600',
-    marginLeft: 8,
-  },
-  secondaryChatButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#f1f5f9',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-  },
-  secondaryChatText: {
-    color: '#667eea',
-    fontSize: 14,
-    fontWeight: '500',
-    marginLeft: 6,
-  },
-  chatStats: {
-    backgroundColor: '#f8fafc',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-  },
-  chatStatsText: {
-    fontSize: 12,
-    color: '#64748b',
-    textAlign: 'center',
-  },
-
-  // Section Styles
   section: {
     paddingHorizontal: 20,
-    marginBottom: 32,
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 24,
   },
   sectionTitle: {
     fontSize: 20,
-    fontWeight: '600',
+    fontWeight: 'bold',
     color: '#1e293b',
+    marginBottom: 8,
+  },
+  sectionDescription: {
+    fontSize: 14,
+    color: '#64748b',
     marginBottom: 16,
   },
-  seeAllText: {
-    fontSize: 14,
-    color: '#667eea',
-    fontWeight: '500',
-  },
-
-  // Quick Actions Styles
-  quickActions: {
+  quickActionsGrid: {
     gap: 12,
   },
   quickActionWrapper: {
-    width: '100%',
+    marginBottom: 12,
   },
   quickAction: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#fff',
+    borderRadius: 12,
     padding: 16,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 3.84,
+    elevation: 5,
   },
   quickActionGradient: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 16,
@@ -441,31 +401,68 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: '#1e293b',
-    marginBottom: 2,
+    marginBottom: 4,
   },
   quickActionSubtitle: {
     fontSize: 14,
     color: '#64748b',
   },
-
-  // Recent Activities Styles
-  recentActivities: {
+  statsGrid: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     gap: 12,
+  },
+  statCard: {
+    flex: 1,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  statValue: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#1e293b',
+    marginTop: 8,
+    marginBottom: 4,
+  },
+  statLabel: {
+    fontSize: 12,
+    color: '#64748b',
+    textAlign: 'center',
+  },
+  recentActivity: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 3.84,
+    elevation: 5,
   },
   recentItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#fff',
     padding: 16,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f5f9',
   },
   recentIcon: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#f1f5f9',
+    backgroundColor: '#f8fafc',
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
@@ -483,33 +480,72 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#64748b',
   },
-  bottomSpacing: {
-    height: 100,
-  },
-  // Google Integration Section Styles
-  sectionContainer: {
-    backgroundColor: '#fff',
+  googleSection: {
+    backgroundColor: 'white',
+    padding: 15,
+    borderRadius: 8,
     marginHorizontal: 20,
-    marginVertical: 10,
-    padding: 20,
-    borderRadius: 16,
+    marginBottom: 15,
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
       height: 2,
     },
     shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    shadowRadius: 3.84,
+    elevation: 5,
   },
-  sectionDescription: {
+  successText: {
+    color: '#27ae60',
     fontSize: 16,
-    color: '#6b7280',
-    lineHeight: 24,
-    marginBottom: 16,
+    fontWeight: '500',
   },
-  googleButton: {
-    marginTop: 8,
+  infoText: {
+    color: '#7f8c8d',
+    fontSize: 14,
+  },
+  errorContainer: {
+    backgroundColor: '#fff5f5',
+    padding: 15,
+    borderRadius: 8,
+    borderColor: '#fed7d7',
+    borderWidth: 1,
+    marginHorizontal: 20,
+    marginBottom: 15,
+  },
+  googleErrorContainer: {
+    backgroundColor: '#fff5f5',
+    padding: 12,
+    borderRadius: 6,
+    borderColor: '#fed7d7',
+    borderWidth: 1,
+    marginHorizontal: 20,
+    marginBottom: 15,
+  },
+  errorText: {
+    color: '#e53e3e',
+    fontSize: 14,
+    marginBottom: 5,
+  },
+  errorSubtext: {
+    color: '#a0a0a0',
+    fontSize: 12,
+    marginBottom: 10,
+  },
+  smallRetryButton: {
+    backgroundColor: '#3182ce',
+    paddingHorizontal: 15,
+    paddingVertical: 8,
+    borderRadius: 4,
+    alignSelf: 'flex-start',
+  },
+  retryButtonText: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  bottomSpacing: {
+    height: 100,
   },
 });
 

@@ -21,6 +21,7 @@ import { useNavigation, NavigationProp, useFocusEffect } from '@react-navigation
 import { useAuth } from '../contexts/AuthContext';
 import { useNativeGoogleAuth } from '../hooks/useNativeGoogleAuth';
 import GoogleConnectButton from '../components/GoogleConnectButton';
+import ErrorBoundary from '../components/ErrorBoundary';
 
 import { 
   profileService, 
@@ -449,38 +450,50 @@ const ProfileScreen: React.FC = () => {
         )}
 
         {/* Google Account Section */}
-        <View style={styles.accountSection}>
-          <Text style={styles.sectionTitle}>Connected Accounts</Text>
-          
-          <View style={styles.accountItem}>
-            <View style={styles.accountHeader}>
-              <Ionicons name="logo-google" size={24} color="#4285F4" />
-              <Text style={styles.accountTitle}>Google Account</Text>
+        <ErrorBoundary 
+          fallback={({ error, resetError }) => (
+            <View style={styles.errorContainer}>
+              <Text style={styles.errorTitle}>Google Services Error</Text>
+              <Text style={styles.errorText}>{error.message}</Text>
+              <TouchableOpacity style={styles.retryButton} onPress={resetError}>
+                <Text style={styles.retryButtonText}>Retry Google Services</Text>
+              </TouchableOpacity>
             </View>
+          )}
+        >
+          <View style={styles.accountSection}>
+            <Text style={styles.sectionTitle}>Connected Accounts</Text>
             
-            {isConnected && userInfo ? (
-              <View style={styles.accountDetails}>
-                <Text style={styles.accountStatus}>✅ Connected</Text>
-                <Text style={styles.accountEmail}>{userInfo.user_email}</Text>
-                <Text style={styles.accountCapabilities}>
-                  • Push documents to Google Drive{'\n'}
-                  • Access Google Calendar{'\n'}
-                  • Sync data across devices
-                </Text>
+            <View style={styles.accountItem}>
+              <View style={styles.accountHeader}>
+                <Ionicons name="logo-google" size={24} color="#4285F4" />
+                <Text style={styles.accountTitle}>Google Account</Text>
               </View>
-            ) : (
-              <View style={styles.accountDetails}>
-                <Text style={styles.accountStatusDisconnected}>❌ Not Connected</Text>
-                <Text style={styles.accountDescription}>
-                  Connect your Google account to enable document syncing, 
-                  calendar access, and cloud storage features.
-                </Text>
-              </View>
-            )}
-            
-            <GoogleConnectButton style={styles.connectButton} />
+              
+              {isConnected && userInfo ? (
+                <View style={styles.accountDetails}>
+                  <Text style={styles.accountStatus}>✅ Connected</Text>
+                  <Text style={styles.accountEmail}>{userInfo.user_email}</Text>
+                  <Text style={styles.accountCapabilities}>
+                    • Push documents to Google Drive{'\n'}
+                    • Access Google Calendar{'\n'}
+                    • Sync data across devices
+                  </Text>
+                </View>
+              ) : (
+                <View style={styles.accountDetails}>
+                  <Text style={styles.accountStatusDisconnected}>❌ Not Connected</Text>
+                  <Text style={styles.accountDescription}>
+                    Connect your Google account to enable document syncing, 
+                    calendar access, and cloud storage features.
+                  </Text>
+                </View>
+              )}
+              
+              <GoogleConnectButton style={styles.connectButton} />
+            </View>
           </View>
-        </View>
+        </ErrorBoundary>
 
         {/* Menu Section */}
         <View style={styles.menuContainer}>
@@ -873,6 +886,39 @@ const styles = StyleSheet.create({
   footerVersion: {
     fontSize: 12,
     color: '#999',
+  },
+
+  // Error Styles
+  errorContainer: {
+    backgroundColor: '#fff5f5',
+    padding: 15,
+    borderRadius: 8,
+    borderColor: '#fed7d7',
+    borderWidth: 1,
+    marginBottom: 15,
+  },
+  errorTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#e53e3e',
+    marginBottom: 8,
+  },
+  errorText: {
+    color: '#e53e3e',
+    fontSize: 14,
+    marginBottom: 10,
+  },
+  retryButton: {
+    backgroundColor: '#3182ce',
+    paddingHorizontal: 15,
+    paddingVertical: 8,
+    borderRadius: 6,
+    alignSelf: 'flex-start',
+  },
+  retryButtonText: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: '500',
   },
 });
 
