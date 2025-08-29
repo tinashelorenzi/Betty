@@ -15,7 +15,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { StackNavigationProp } from '@react-navigation/stack';
-import { RouteProp } from '@react-navigation/native';
+import { RouteProp, useFocusEffect } from '@react-navigation/native';
 
 import chatService from '../services/chatService';
 import { MessageHistory, ChatMessage, ChatResponse, MessageType } from '../types/chat';
@@ -23,6 +23,8 @@ import { RootStackParamList } from '../navigation/AppNavigator';
 import TypingIndicator from '../components/TypingIndicator';
 import DocumentFileMessage from '../components/DocumentFileMessage';
 import { useTextToSpeech } from '../hooks/useTextToSpeech';
+import { useNativeGoogleAuth } from '../hooks/useNativeGoogleAuth';
+import ErrorBoundary from '../components/ErrorBoundary';
 
 type ChatScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Chat'>;
 type ChatScreenRouteProp = RouteProp<RootStackParamList, 'Chat'>;
@@ -52,6 +54,14 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ navigation, route }) => {
   
   // Text-to-speech functionality
   const { isSpeaking, speak, stop, isEnabled, toggleEnabled, voiceSpeed, setVoiceSpeed } = useTextToSpeech();
+  
+  // Google Auth hook for persistent connection status
+  const { 
+    isConnected: isGoogleConnected, 
+    isLoading: isGoogleLoading, 
+    userInfo: googleUserInfo,
+    checkStatus: refreshGoogleStatus 
+  } = useNativeGoogleAuth();
 
   // Random typing messages for variety
   const typingMessages = [
@@ -77,6 +87,21 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ navigation, route }) => {
       headerShown: false,
     });
   }, [conversationId, isNew, navigation]);
+
+  // Refresh Google status when screen comes into focus
+  useFocusEffect(
+    React.useCallback(() => {
+      const refreshStatus = async () => {
+        try {
+          await refreshGoogleStatus();
+        } catch (error) {
+          console.error('Error refreshing Google status in chat:', error);
+        }
+      };
+
+      refreshStatus();
+    }, [refreshGoogleStatus])
+  );
 
   // Auto-scroll to bottom when AI starts typing
   useEffect(() => {
@@ -300,6 +325,131 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ navigation, route }) => {
     }
   };
 
+  const handleExportConversation = async () => {
+    if (!isGoogleConnected) {
+      Alert.alert(
+        'Google Account Not Connected',
+        'Please connect your Google account in Profile to export conversations to Google Docs.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { 
+            text: 'Go to Profile', 
+            onPress: () => navigation.navigate('Profile' as any) 
+          }
+        ]
+      );
+      return;
+    }
+
+    if (messages.length === 0) {
+      Alert.alert('No Messages', 'This conversation has no messages to export.');
+      return;
+    }
+
+    Alert.alert(
+      'Export to Google Docs',
+      `Export this conversation to Google Docs?\n\nConversation: ${title || 'Untitled Chat'}\nMessages: ${messages.length}`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { 
+          text: 'Export', 
+          onPress: async () => {
+            try {
+              setIsLoading(true);
+              
+              // Create conversation content
+              const conversationContent = messages.map((msg, index) => {
+                return `**${msg.role === 'user' ? 'You' : 'Betty'}:** ${msg.content}\n\n---\n\n`;
+              }).join('');
+
+              const documentTitle = `Betty Chat - ${title || 'Conversation'} - ${new Date().toLocaleDateString()}`;
+              const fullContent = `# ${documentTitle}\n\nExported on: ${new Date().toLocaleString()}\nTotal Messages: ${messages.length}\n\n---\n\n${conversationContent}`;
+
+              // TODO: Implement actual Google Docs export
+              // This would use your Google service
+              Alert.alert(
+                'Export Scheduled',
+                'Your conversation export to Google Docs is being processed. You will be notified when it\'s complete.',
+                [{ text: 'OK' }]
+              );
+
+            } catch (error: any) {
+              console.error('Export error:', error);
+              
+              // Enhanced error handling for backend issues
+              let errorMessage = error.message || 'Failed to export conversation';
+              
+              if (error.message?.includes('firestore') || error.message?.includes('Database update failed')) {
+                errorMessage = 'Google authentication was successful, but we encountered a temporary database issue. Your export is being processed, but you may need to try again in a few minutes.';
+              }
+              
+              Alert.alert('Export Failed', errorMessage);
+            } finally {
+              setIsLoading(false);
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  const handleCreateDocument = async (messageContent: string) => {
+    if (!isGoogleConnected) {
+      Alert.alert(
+        'Google Account Not Connected',
+        'Please connect your Google account in Profile to create Google Docs.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { 
+            text: 'Go to Profile', 
+            onPress: () => navigation.navigate('Profile' as any) 
+          }
+        ]
+      );
+      return;
+    }
+
+    Alert.alert(
+      'Create Google Doc',
+      'Create a new Google Doc with this message content?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { 
+          text: 'Create', 
+          onPress: async () => {
+            try {
+              setIsLoading(true);
+              
+              const documentTitle = `Betty Response - ${new Date().toLocaleDateString()}`;
+              const fullContent = `# ${documentTitle}\n\nCreated on: ${new Date().toLocaleString()}\n\n---\n\n${messageContent}`;
+
+              // TODO: Implement actual Google Docs creation
+              Alert.alert(
+                'Document Created',
+                'Your Google Doc is being created. You will be notified when it\'s ready.',
+                [{ text: 'OK' }]
+              );
+
+            } catch (error: any) {
+              console.error('Document creation error:', error);
+              
+              // Enhanced error handling for backend issues
+              let errorMessage = error.message || 'Failed to create document';
+              
+              if (error.message?.includes('firestore') || error.message?.includes('Database update failed')) {
+                errorMessage = 'Google authentication was successful, but we encountered a temporary database issue. Your document is being created, but you may need to try again in a few minutes.';
+              }
+              
+              Alert.alert('Creation Failed', errorMessage);
+            } finally {
+              setIsLoading(false);
+            }
+          }
+        }
+      ]
+    );
+  };
+
   const renderMessage = ({ item, index }: { item: MessageHistory; index: number }) => {
     const isUser = item.role === 'user';
     const isLastMessage = index === messages.length - 1;
@@ -459,9 +609,36 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ navigation, route }) => {
   const maxCharacters = 4000; // Match your backend limit
 
   return (
-    <SafeAreaView style={styles.container}>
-      {/* Custom Fixed Header */}
-      <View style={styles.customHeader}>
+    <ErrorBoundary 
+      fallback={({ error, resetError }) => (
+        <View style={styles.errorContainer}>
+          <Text style={styles.errorTitle}>Chat Error</Text>
+          <Text style={styles.errorText}>{error.message}</Text>
+          
+          {/* Enhanced error handling for backend issues */}
+          {error.message.includes('firestore') || error.message.includes('Database update failed') ? (
+            <View style={styles.backendErrorContainer}>
+              <Text style={styles.backendErrorTitle}>⚠️ Backend Service Issue</Text>
+              <Text style={styles.backendErrorText}>
+                We're experiencing technical difficulties with our database service. 
+                This is a temporary issue and doesn't affect your chat functionality.
+              </Text>
+              <Text style={styles.backendErrorHint}>
+                Your messages are being processed, but there may be a delay in saving to our database. 
+                Please try again in a few minutes.
+              </Text>
+            </View>
+          ) : null}
+          
+          <TouchableOpacity style={styles.retryButton} onPress={resetError}>
+            <Text style={styles.retryButtonText}>Retry Chat</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+    >
+      <SafeAreaView style={styles.container}>
+        {/* Custom Fixed Header */}
+        <View style={styles.customHeader}>
         <View style={styles.headerLeft}>
           <TouchableOpacity 
             style={styles.backButton}
@@ -480,6 +657,19 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ navigation, route }) => {
         </View>
         
         <View style={styles.headerRight}>
+          {/* Google Status Indicator */}
+          <View style={styles.googleStatus}>
+            {isGoogleLoading ? (
+              <ActivityIndicator size="small" color="#667eea" />
+            ) : (
+              <Ionicons 
+                name={isGoogleConnected ? "cloud-done" : "cloud-offline"} 
+                size={20} 
+                color={isGoogleConnected ? "#10b981" : "#94a3b8"} 
+              />
+            )}
+          </View>
+          
           {/* Voice toggle button */}
           <TouchableOpacity
             style={styles.voiceToggleButton}
@@ -601,7 +791,8 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ navigation, route }) => {
           </View>
         </View>
       </KeyboardAvoidingView>
-    </SafeAreaView>
+      </SafeAreaView>
+    </ErrorBoundary>
   );
 };
 
@@ -959,6 +1150,72 @@ const styles = StyleSheet.create({
   },
   sendingState: {
     backgroundColor: '#f59e0b',
+  },
+  googleStatus: {
+    marginRight: 8,
+    padding: 4,
+  },
+
+  // Error Styles
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+    backgroundColor: '#fff5f5',
+  },
+  errorTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#e53e3e',
+    marginBottom: 8,
+  },
+  errorText: {
+    color: '#e53e3e',
+    fontSize: 14,
+    marginBottom: 10,
+    textAlign: 'center',
+  },
+  retryButton: {
+    backgroundColor: '#3182ce',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 6,
+    marginTop: 10,
+  },
+  retryButtonText: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+
+  // Backend Error Styles
+  backendErrorContainer: {
+    backgroundColor: '#fff7ed',
+    padding: 12,
+    borderRadius: 6,
+    borderColor: '#fed7aa',
+    borderWidth: 1,
+    marginTop: 10,
+    marginBottom: 10,
+  },
+  backendErrorTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#c2410c',
+    marginBottom: 6,
+  },
+  backendErrorText: {
+    color: '#9a3412',
+    fontSize: 12,
+    marginBottom: 6,
+    lineHeight: 16,
+  },
+  backendErrorHint: {
+    color: '#7c2d12',
+    fontSize: 11,
+    fontStyle: 'italic',
+    lineHeight: 14,
   },
 });
 

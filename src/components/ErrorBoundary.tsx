@@ -31,7 +31,7 @@ class ErrorBoundary extends React.Component<Props, State> {
 
   logErrorToBackend = async (error: Error, errorInfo: React.ErrorInfo) => {
     try {
-      const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:8000';
+      const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || 'https://api.bettygenius.co.za';
       // You might want to import AsyncStorage here to get the auth token
       
       const logData = {

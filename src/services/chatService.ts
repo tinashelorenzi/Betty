@@ -14,7 +14,7 @@ import {
   MessageRole
 } from '../types/chat';
 
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:8000';
+const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || 'https://api.bettygenius.co.za';
 
 class ChatService {
   private api: AxiosInstance;

@@ -39,7 +39,7 @@ const GoogleConfigTester: React.FC = () => {
 
   const testBackendConnection = async () => {
     try {
-      const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:8000';
+      const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || 'https://api.bettygenius.co.za';
       const response = await fetch(`${API_BASE_URL}/health`, {
         method: 'GET',
         headers: {

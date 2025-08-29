@@ -68,6 +68,8 @@ const GoogleConnectButton: React.FC<GoogleConnectButtonProps> = ({
         errorMessage = 'Google Sign-In is not available on web. Please use the mobile app for Google integration.';
       } else if (error.message?.includes('Google Play Services not available')) {
         errorMessage = 'Google Play Services not available. Please ensure you have Google Play Services installed.';
+      } else if (error.message?.includes('firestore') || error.message?.includes('Database update failed')) {
+        errorMessage = 'Google authentication was successful, but we encountered a temporary database issue. Your account is connected, but some features may be limited. Please try again in a few minutes.';
       }
       
       Alert.alert(

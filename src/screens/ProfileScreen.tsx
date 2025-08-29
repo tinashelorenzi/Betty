@@ -455,6 +455,22 @@ const ProfileScreen: React.FC = () => {
             <View style={styles.errorContainer}>
               <Text style={styles.errorTitle}>Google Services Error</Text>
               <Text style={styles.errorText}>{error.message}</Text>
+              
+              {/* Enhanced error handling for backend issues */}
+              {error.message.includes('firestore') || error.message.includes('Database update failed') ? (
+                <View style={styles.backendErrorContainer}>
+                  <Text style={styles.backendErrorTitle}>⚠️ Backend Service Issue</Text>
+                  <Text style={styles.backendErrorText}>
+                    We're experiencing technical difficulties with our database service. 
+                    This is a temporary issue and doesn't affect your Google account connection.
+                  </Text>
+                  <Text style={styles.backendErrorHint}>
+                    Your Google authentication was successful, but we couldn't save the connection to our database. 
+                    Please try again in a few minutes.
+                  </Text>
+                </View>
+              ) : null}
+              
               <TouchableOpacity style={styles.retryButton} onPress={resetError}>
                 <Text style={styles.retryButtonText}>Retry Google Services</Text>
               </TouchableOpacity>
@@ -919,6 +935,35 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 14,
     fontWeight: '500',
+  },
+
+  // Backend Error Styles
+  backendErrorContainer: {
+    backgroundColor: '#fff7ed',
+    padding: 12,
+    borderRadius: 6,
+    borderColor: '#fed7aa',
+    borderWidth: 1,
+    marginTop: 10,
+    marginBottom: 10,
+  },
+  backendErrorTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#c2410c',
+    marginBottom: 6,
+  },
+  backendErrorText: {
+    color: '#9a3412',
+    fontSize: 12,
+    marginBottom: 6,
+    lineHeight: 16,
+  },
+  backendErrorHint: {
+    color: '#7c2d12',
+    fontSize: 11,
+    fontStyle: 'italic',
+    lineHeight: 14,
   },
 });
 

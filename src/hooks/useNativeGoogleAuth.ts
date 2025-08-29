@@ -32,7 +32,7 @@ interface UseNativeGoogleAuthReturn {
 // Enhanced logging function
 const logToBackend = async (level: 'info' | 'error' | 'debug', message: string, data?: any) => {
   try {
-    const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:8000';
+    const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || 'https://api.bettygenius.co.za';
     const authToken = await AsyncStorage.getItem('authToken');
     
     const logData = {
@@ -76,7 +76,7 @@ export const useNativeGoogleAuth = (): UseNativeGoogleAuthReturn => {
   const [isLoading, setIsLoading] = useState(false);
   const [userInfo, setUserInfo] = useState(null);
 
-  const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:8000';
+  const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || 'https://api.bettygenius.co.za';
 
   useEffect(() => {
     const initializeGoogleAuth = async () => {
