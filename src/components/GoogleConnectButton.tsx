@@ -70,6 +70,14 @@ const GoogleConnectButton: React.FC<GoogleConnectButtonProps> = ({
         errorMessage = 'Google Play Services not available. Please ensure you have Google Play Services installed.';
       } else if (error.message?.includes('firestore') || error.message?.includes('Database update failed')) {
         errorMessage = 'Google authentication was successful, but we encountered a temporary database issue. Your account is connected, but some features may be limited. Please try again in a few minutes.';
+      } else if (error.message?.includes('Unable to extract email')) {
+        errorMessage = 'There was an issue accessing your Google account information. Please try:\n\n1. Sign out of Google completely\n2. Sign back into Google\n3. Try connecting again\n\nIf the issue persists, please contact support.';
+      } else if (error.message?.includes('Please log in to Betty first')) {
+        errorMessage = 'Your Betty session has expired. Please log out and log back into Betty, then try connecting Google again.';
+      } else if (error.message?.includes('Server error')) {
+        errorMessage = 'Our servers are experiencing temporary issues. Please try again in a few moments.';
+      } else if (error.message?.includes('Invalid Google account data')) {
+        errorMessage = 'There was an issue with your Google account data. Please try:\n\n1. Sign out of all Google accounts\n2. Sign back in to your preferred Google account\n3. Try connecting again';
       }
       
       Alert.alert(

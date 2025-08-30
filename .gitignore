@@ -36,3 +36,4 @@ yarn-error.*
 # typescript
 *.tsbuildinfo
 .env
+credentials/firebase-service-account-key.json
