@@ -1,8 +1,9 @@
-// src/hooks/useNativeGoogleAuth.ts - ENHANCED VERSION WITH PERSISTENCE
+// src/hooks/useNativeGoogleAuth.ts - VERSION WITH FRESH TOKEN HANDLING
+
 import { useState, useEffect, useCallback } from 'react';
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-signin';
+import { GoogleSignin, statusCodes, User } from '@react-native-google-signin/google-signin';
 
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || 'https://api.bettygenius.co.za';
 
@@ -76,36 +77,28 @@ export const useNativeGoogleAuth = () => {
       if (cached) {
         const { state, timestamp } = JSON.parse(cached);
         
-        // Use cached state if it's recent
+        // Check if cache is still valid (5 minutes)
         if (Date.now() - timestamp < GOOGLE_AUTH_CACHE_DURATION) {
           setIsConnected(state.isConnected);
           setUserInfo(state.userInfo);
-          setLastStatusCheck(timestamp);
-          console.log('Loaded cached Google auth state:', state.isConnected);
-          return true;
+          setIsLoading(false);
+          console.log('Loaded cached Google auth state');
+          return;
         }
       }
-      return false;
     } catch (error) {
-      console.error('Error loading cached Google state:', error);
-      return false;
+      console.log('Failed to load cached state:', error);
     }
   };
 
   const cacheState = async (state: GoogleAuthState) => {
     try {
-      const cacheData = {
-        state: {
-          isConnected: state.isConnected,
-          userInfo: state.userInfo
-        },
+      await AsyncStorage.setItem(GOOGLE_AUTH_CACHE_KEY, JSON.stringify({
+        state,
         timestamp: Date.now()
-      };
-      
-      await AsyncStorage.setItem(GOOGLE_AUTH_CACHE_KEY, JSON.stringify(cacheData));
-      setLastStatusCheck(Date.now());
+      }));
     } catch (error) {
-      console.error('Error caching Google state:', error);
+      console.log('Failed to cache state:', error);
     }
   };
 
@@ -118,22 +111,47 @@ export const useNativeGoogleAuth = () => {
     }
   };
 
-  // Enhanced checkStatus with caching and retry logic
-  const checkStatus = useCallback(async (forceCheck: boolean = false): Promise<void> => {
+  // Get fresh tokens from Google
+  const getFreshGoogleTokens = async () => {
     try {
-      const now = Date.now();
+      console.log('🔄 Getting fresh Google tokens...');
       
-      // Skip check if recent and not forced
-      if (!forceCheck && (now - lastStatusCheck) < GOOGLE_AUTH_CACHE_DURATION) {
-        console.log('Skipping status check - using cached result');
-        return;
+      // First, sign out to clear any cached tokens
+      try {
+        await GoogleSignin.signOut();
+        console.log('✅ Signed out from Google to clear cached tokens');
+      } catch (error) {
+        console.log('ℹ️ Sign out not needed or failed, continuing...');
       }
-
-      console.log('Checking Google connection status...');
       
+      // Sign in again to get fresh tokens
+      const userInfo = await GoogleSignin.signIn();
+      console.log('✅ Fresh sign-in completed');
+      
+      // Get the fresh tokens
+      const tokens = await GoogleSignin.getTokens();
+      console.log('✅ Fresh tokens obtained');
+      
+      return { userInfo, tokens };
+    } catch (error) {
+      console.error('❌ Failed to get fresh tokens:', error);
+      throw error;
+    }
+  };
+
+  // Check Google connection status with backend
+  const checkStatus = useCallback(async (forceRefresh: boolean = false) => {
+    const now = Date.now();
+    if (!forceRefresh && now - lastStatusCheck < 30000) {
+      return; // Don't check more than once per 30 seconds
+    }
+    
+    setLastStatusCheck(now);
+    
+    try {
       const authToken = await getAuthToken();
       if (!authToken) {
-        console.log('No auth token found');
+        console.log('No auth token available');
         await updateState(false, null);
         return;
       }
@@ -144,7 +162,6 @@ export const useNativeGoogleAuth = () => {
           'Authorization': `Bearer ${authToken}`,
           'Content-Type': 'application/json',
         },
-        // Add timeout to prevent hanging
         signal: AbortSignal.timeout(10000)
       });
 
@@ -154,7 +171,6 @@ export const useNativeGoogleAuth = () => {
         console.log('Google connection status updated:', data.connected);
       } else {
         console.warn('Status check failed with status:', response.status);
-        // Don't immediately set to disconnected on server errors
         if (response.status >= 500) {
           console.log('Server error, keeping current state');
           return;
@@ -164,13 +180,11 @@ export const useNativeGoogleAuth = () => {
     } catch (error: any) {
       console.error('Error checking Google auth status:', error);
       
-      // On network errors, keep current state but log the issue
       if (error.name === 'AbortError' || error.name === 'TimeoutError') {
         console.log('Status check timed out, keeping current state');
         return;
       }
       
-      // Only update state on non-network errors
       if (!error.message?.includes('Network') && !error.message?.includes('fetch')) {
         await updateState(false, null);
       }
@@ -183,7 +197,6 @@ export const useNativeGoogleAuth = () => {
     setIsConnected(connected);
     setUserInfo(info);
     
-    // Cache the new state
     await cacheState({
       isConnected: connected,
       isLoading: false,
@@ -199,30 +212,57 @@ export const useNativeGoogleAuth = () => {
         throw new Error('Google Sign-In not available on this platform');
       }
 
-      // Try to get current user first, if that fails, sign in
-      let userInfo;
-      try {
-        userInfo = await GoogleSignin.getCurrentUser();
-        if (userInfo) {
-          console.log('User already signed in, using current user');
-        }
-      } catch (error) {
-        console.log('No current user, starting sign in flow');
-        userInfo = await GoogleSignin.signIn();
-      }
+      // Get fresh tokens and user info
+      const { userInfo, tokens } = await getFreshGoogleTokens();
 
       if (!userInfo) {
         throw new Error('Failed to get user information from Google');
       }
 
-      // Get tokens
-      const tokens = await GoogleSignin.getTokens();
+      console.log('🔍 Raw Google Sign-In userInfo:', JSON.stringify(userInfo, null, 2));
+
+      // Extract user data correctly based on the actual structure
+      let extractedUserData;
       
+      if ((userInfo as any).user) {
+        // Standard structure: userInfo.user contains the actual user data
+        extractedUserData = {
+          email: (userInfo as any).user.email || '',
+          name: (userInfo as any).user.name || '',
+          photo: (userInfo as any).user.photo || '',
+          id: (userInfo as any).user.id || '',
+        };
+      } else {
+        // Alternative structure: userInfo itself contains user data
+        extractedUserData = {
+          email: (userInfo as any).email || '',
+          name: (userInfo as any).name || '',
+          photo: (userInfo as any).photo || '',
+          id: (userInfo as any).id || '',
+        };
+      }
+
+      console.log('✅ Extracted user data:', extractedUserData);
+
+      // Validate that we have the required email
+      if (!extractedUserData.email) {
+        console.error('❌ No email found in Google user info:', userInfo);
+        throw new Error('Failed to get user email from Google. Please try signing out and signing in again.');
+      }
+
       // Send to backend
       const authToken = await getAuthToken();
       if (!authToken) {
         throw new Error('Please log in to Betty first');
       }
+
+      const requestPayload = {
+        access_token: tokens.accessToken,
+        id_token: tokens.idToken,
+        user_info: extractedUserData
+      };
+
+      console.log('📤 Sending to backend:', JSON.stringify(requestPayload, null, 2));
 
       const response = await fetch(`${API_BASE_URL}/auth/google/connect-native`, {
         method: 'POST',
@@ -230,39 +270,41 @@ export const useNativeGoogleAuth = () => {
           'Authorization': `Bearer ${authToken}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          access_token: tokens.accessToken,
-          id_token: tokens.idToken,
-          user_info: {
-            email: (userInfo as any).data?.user?.email || '',
-            name: (userInfo as any).data?.user?.name || '',
-            photo: (userInfo as any).data?.user?.photo || '',
-            id: (userInfo as any).data?.user?.id || '',
-          }
-        }),
+        body: JSON.stringify(requestPayload),
       });
 
+      const responseText = await response.text();
+      console.log('📥 Backend response:', responseText);
+
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
+        let errorData;
+        try {
+          errorData = JSON.parse(responseText);
+        } catch {
+          errorData = { detail: `HTTP ${response.status}: ${responseText}` };
+        }
+        console.error('❌ Backend error:', errorData);
         throw new Error(errorData.detail || 'Failed to connect Google account');
       }
 
-      const result = await response.json();
+      const result = JSON.parse(responseText);
       await updateState(true, result.user_info);
       
-      console.log('Google connection successful');
+      console.log('✅ Google connection successful');
       return true;
 
     } catch (error: any) {
-      console.error('Google connection error:', error);
+      console.error('❌ Google connection error:', error);
       
       if (error.code === statusCodes.SIGN_IN_CANCELLED) {
         throw new Error('Sign-in was cancelled');
+      } else if (error.code === statusCodes.IN_PROGRESS) {
+        throw new Error('Sign-in is already in progress');
       } else if (error.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
         throw new Error('Google Play Services not available');
+      } else {
+        throw error;
       }
-      
-      throw error;
     } finally {
       setIsLoading(false);
     }
@@ -272,38 +314,38 @@ export const useNativeGoogleAuth = () => {
     try {
       setIsLoading(true);
       
-      // Disconnect from backend
       const authToken = await getAuthToken();
-      if (authToken) {
-        try {
-          await fetch(`${API_BASE_URL}/auth/google/disconnect`, {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${authToken}`,
-              'Content-Type': 'application/json',
-            },
-          });
-        } catch (error) {
-          console.error('Backend disconnection failed:', error);
-        }
+      if (!authToken) {
+        throw new Error('Please log in to Betty first');
       }
 
-      // Disconnect from Google Sign-In
-      if (GoogleSignin && Platform.OS !== 'web') {
-        try {
-          await GoogleSignin.signOut();
-        } catch (error) {
-          console.error('Google Sign-In signout failed:', error);
-        }
+      // Disconnect from backend
+      const response = await fetch(`${API_BASE_URL}/auth/google/disconnect`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${authToken}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.detail || 'Failed to disconnect Google account');
+      }
+
+      // Sign out from Google on device
+      if (Platform.OS !== 'web' && GoogleSignin) {
+        await GoogleSignin.signOut();
       }
 
       await updateState(false, null);
+      
       console.log('Google disconnection successful');
       return true;
-      
+
     } catch (error: any) {
-      console.error('Error disconnecting Google:', error);
-      return false;
+      console.error('Google disconnection error:', error);
+      throw error;
     } finally {
       setIsLoading(false);
     }
@@ -314,26 +356,13 @@ export const useNativeGoogleAuth = () => {
     return checkStatus(true);
   }, [checkStatus]);
 
-  // Auto-refresh every time the hook is used in a new component
-  const ensureFreshStatus = useCallback(() => {
-    const now = Date.now();
-    if (now - lastStatusCheck > GOOGLE_AUTH_CACHE_DURATION) {
-      checkStatus(false);
-    }
-  }, [checkStatus, lastStatusCheck]);
-
-  // Call this whenever the hook is accessed
-  useEffect(() => {
-    ensureFreshStatus();
-  }, [ensureFreshStatus]);
-
   return {
     isConnected,
     isLoading,
     userInfo,
     connectGoogle,
     disconnectGoogle,
-    checkStatus: refreshStatus,
+    checkStatus,
     refreshStatus,
   };
 };
