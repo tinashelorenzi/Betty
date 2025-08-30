@@ -118,100 +118,57 @@ export const useNativeGoogleAuth = () => {
 
   const getAuthToken = async (): Promise<string | null> => {
     try {
-      // Try both possible token keys for backward compatibility
-      let token = await AsyncStorage.getItem('authToken');
-      if (!token) {
-        token = await AsyncStorage.getItem('auth_token');
-      }
-      
-      if (token) {
-        console.log('🔑 Auth token retrieved successfully');
-      } else {
-        console.warn('⚠️ No auth token found in storage');
-      }
-      
-      return token;
+      return await AsyncStorage.getItem('auth_token');
     } catch (error) {
       console.error('Failed to get auth token:', error);
       return null;
     }
   };
 
-  // ENHANCED: More robust user data extraction with better logging
+  // FIXED: Robust user data extraction
   const extractUserDataFromGoogleResponse = (userInfo: any): UserInfo => {
     console.log('🔍 Raw Google Sign-In userInfo structure:', JSON.stringify(userInfo, null, 2));
 
     let extractedData: UserInfo | null = null;
 
-    // Try different possible structures with more comprehensive mapping
+    // Try different possible structures
     const possibleStructures = [
-      // Structure 1: userInfo.user (most common for @react-native-google-signin/google-signin)
+      // Structure 1: userInfo.user (most common)
       () => userInfo?.user && {
         email: userInfo.user.email,
-        name: userInfo.user.name || userInfo.user.displayName || 
-              (userInfo.user.givenName && userInfo.user.familyName ? 
-                userInfo.user.givenName + ' ' + userInfo.user.familyName : 
-                userInfo.user.givenName || userInfo.user.familyName || ''),
-        photo: userInfo.user.photo || userInfo.user.photoURL,
+        name: userInfo.user.name || userInfo.user.displayName,
+        photo: userInfo.user.photo,
         id: userInfo.user.id,
       },
       
-      // Structure 2: Direct userInfo object (for some Google SDK versions)
-      () => userInfo && userInfo.email && {
+      // Structure 2: Direct userInfo object
+      () => userInfo && {
         email: userInfo.email,
-        name: userInfo.name || userInfo.displayName || (userInfo.givenName && userInfo.familyName ? userInfo.givenName + ' ' + userInfo.familyName : ''),
-        photo: userInfo.photo || userInfo.photoURL || userInfo.picture,
-        id: userInfo.id || userInfo.sub,
+        name: userInfo.name || userInfo.displayName,
+        photo: userInfo.photo,
+        id: userInfo.id,
       },
       
-      // Structure 3: Nested in userInfo.additionalUserInfo (Firebase Auth structure)
+      // Structure 3: Nested in userInfo.additionalUserInfo
       () => userInfo?.additionalUserInfo?.profile && {
         email: userInfo.additionalUserInfo.profile.email,
         name: userInfo.additionalUserInfo.profile.name || userInfo.additionalUserInfo.profile.displayName,
         photo: userInfo.additionalUserInfo.profile.photo || userInfo.additionalUserInfo.profile.picture,
-        id: userInfo.additionalUserInfo.profile.id || userInfo.additionalUserInfo.profile.sub,
-      },
-
-      // Structure 4: Check if userInfo itself is the user object (alternate SDK responses)
-      () => userInfo && userInfo.user && userInfo.user.email && {
-        email: userInfo.user.email,
-        name: userInfo.user.name || userInfo.user.displayName || 
-              (userInfo.user.given_name && userInfo.user.family_name ? 
-                userInfo.user.given_name + ' ' + userInfo.user.family_name : 
-                userInfo.user.given_name || userInfo.user.family_name || ''),
-        photo: userInfo.user.photo || userInfo.user.picture,
-        id: userInfo.user.id || userInfo.user.sub,
-      },
-
-      // Structure 5: Google OAuth2 standard claims format
-      () => userInfo && (userInfo.email || userInfo.user?.email) && {
-        email: userInfo.email || userInfo.user?.email,
-        name: userInfo.name || userInfo.user?.name || userInfo.displayName || userInfo.user?.displayName || 
-              (userInfo.given_name || userInfo.user?.given_name ? 
-                (userInfo.given_name || userInfo.user?.given_name) + ' ' + (userInfo.family_name || userInfo.user?.family_name || '') : ''),
-        photo: userInfo.picture || userInfo.user?.picture || userInfo.photo || userInfo.user?.photo,
-        id: userInfo.sub || userInfo.user?.sub || userInfo.id || userInfo.user?.id,
+        id: userInfo.additionalUserInfo.profile.id,
       }
     ];
 
     // Try each structure until we find one that works
-    for (let i = 0; i < possibleStructures.length; i++) {
+    for (const tryStructure of possibleStructures) {
       try {
-        const result = possibleStructures[i]();
-        if (result && result.email && result.email.includes('@')) {
+        const result = tryStructure();
+        if (result && result.email) {
           extractedData = result;
-          console.log(`✅ Successfully extracted user data using structure ${i + 1}:`, {
-            email: result.email,
-            name: result.name,
-            hasPhoto: !!result.photo,
-            id: result.id
-          });
+          console.log('✅ Successfully extracted user data using structure');
           break;
-        } else {
-          console.log(`⚠️ Structure ${i + 1} failed: missing email or invalid email format`);
         }
       } catch (error) {
-        console.log(`⚠️ Structure ${i + 1} failed with error:`, error);
+        console.log('⚠️ Failed to extract with current structure, trying next...');
         continue;
       }
     }
@@ -220,20 +177,14 @@ export const useNativeGoogleAuth = () => {
       console.error('❌ Failed to extract user data from all known structures');
       console.error('Raw userInfo keys:', Object.keys(userInfo || {}));
       
-      // Enhanced debugging: log all possible email-like fields
+      // Last resort: try to find email in any nested property
       const flattenObject = (obj: any, prefix = ''): any => {
         let flattened: any = {};
         for (let key in obj) {
-          if (obj[key] !== null && obj[key] !== undefined) {
-            if (typeof obj[key] === 'object' && !Array.isArray(obj[key])) {
-              Object.assign(flattened, flattenObject(obj[key], prefix + key + '.'));
-            } else {
-              flattened[prefix + key] = obj[key];
-              // Log potential email fields
-              if (key.toLowerCase().includes('email') || (typeof obj[key] === 'string' && obj[key].includes('@'))) {
-                console.log(`🔍 Found potential email field: ${prefix + key} = ${obj[key]}`);
-              }
-            }
+          if (obj[key] && typeof obj[key] === 'object' && !Array.isArray(obj[key])) {
+            Object.assign(flattened, flattenObject(obj[key], prefix + key + '.'));
+          } else {
+            flattened[prefix + key] = obj[key];
           }
         }
         return flattened;
@@ -242,51 +193,8 @@ export const useNativeGoogleAuth = () => {
       const flatData = flattenObject(userInfo);
       console.error('Flattened userInfo:', flatData);
       
-      // Last resort: try to find ANY email-like string
-      const emailPattern = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/;
-      let foundEmail = null;
-      
-      Object.entries(flatData).forEach(([key, value]) => {
-        if (typeof value === 'string' && emailPattern.test(value)) {
-          console.log(`🎯 Found email in field ${key}: ${value}`);
-          foundEmail = value;
-        }
-      });
-      
-      if (foundEmail) {
-        console.log('🚨 Using last resort email extraction');
-        extractedData = {
-          email: foundEmail,
-          name: flatData['user.name'] || flatData['name'] || flatData['displayName'] || 'Unknown User',
-          photo: flatData['user.photo'] || flatData['photo'] || flatData['picture'],
-          id: flatData['user.id'] || flatData['id'] || flatData['sub'] || 'unknown'
-        };
-      } else {
-        throw new Error('Unable to extract email from Google user information. Please try signing out of Google and signing back in.');
-      }
+      throw new Error('Unable to extract email from Google user information. Please try signing out of Google and signing back in.');
     }
-
-    // Validate email format
-    const emailPattern = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/;
-    if (!emailPattern.test(extractedData.email)) {
-      throw new Error(`Invalid email format extracted: ${extractedData.email}`);
-    }
-
-    // Ensure required fields are not empty
-    if (!extractedData.name || extractedData.name.trim() === '') {
-      extractedData.name = extractedData.email.split('@')[0]; // Use email prefix as fallback
-    }
-    
-    if (!extractedData.id || extractedData.id.trim() === '') {
-      extractedData.id = extractedData.email; // Use email as fallback ID
-    }
-
-    console.log('✅ Final validated user data:', {
-      email: extractedData.email,
-      name: extractedData.name,
-      hasPhoto: !!extractedData.photo,
-      id: extractedData.id
-    });
 
     return extractedData;
   };
@@ -384,32 +292,16 @@ export const useNativeGoogleAuth = () => {
         throw new Error('Please log in to Betty first');
       }
 
-      // Ensure all required fields are present and properly formatted
       const requestPayload = {
         access_token: tokens.accessToken,
         id_token: tokens.idToken,
-        user_info: {
-          email: extractedUserData.email.trim().toLowerCase(), // Normalize email
-          name: extractedUserData.name.trim(),
-          photo: extractedUserData.photo || null,
-          id: extractedUserData.id.toString(), // Ensure ID is string
-          // Add additional fields that backend might expect
-          given_name: extractedUserData.name.split(' ')[0] || '',
-          family_name: extractedUserData.name.split(' ').slice(1).join(' ') || '',
-          verified_email: true, // Google emails are always verified
-          locale: 'en'
-        }
+        user_info: extractedUserData
       };
 
       console.log('📤 Sending to backend:', JSON.stringify({
         ...requestPayload,
         access_token: tokens.accessToken ? '[PRESENT]' : '[MISSING]',
-        id_token: tokens.idToken ? '[PRESENT]' : '[MISSING]',
-        user_info: {
-          ...requestPayload.user_info,
-          // Don't log the full email for privacy, just show if it's present
-          email: requestPayload.user_info.email ? '[EMAIL_PRESENT]' : '[EMAIL_MISSING]'
-        }
+        id_token: tokens.idToken ? '[PRESENT]' : '[MISSING]'
       }, null, 2));
 
       const response = await fetch(`${API_BASE_URL}/auth/google/connect-native`, {
@@ -423,7 +315,6 @@ export const useNativeGoogleAuth = () => {
 
       const responseText = await response.text();
       console.log('📥 Backend response status:', response.status);
-      console.log('📥 Backend response headers:', Object.fromEntries(response.headers.entries()));
 
       if (!response.ok) {
         let errorData;
@@ -432,46 +323,11 @@ export const useNativeGoogleAuth = () => {
         } catch {
           errorData = { detail: `HTTP ${response.status}: ${responseText}` };
         }
-        
-        console.error('❌ Backend error details:', {
-          status: response.status,
-          statusText: response.statusText,
-          error: errorData,
-          headers: Object.fromEntries(response.headers.entries()),
-          requestPayload: {
-            ...requestPayload,
-            access_token: '[REDACTED]',
-            id_token: '[REDACTED]',
-            user_info: {
-              ...requestPayload.user_info,
-              email: '[REDACTED]'
-            }
-          }
-        });
-
-        // Provide more specific error messages based on common backend issues
-        let userFriendlyError = errorData.detail || 'Failed to connect Google account';
-        
-        if (errorData.detail && errorData.detail.includes('email')) {
-          userFriendlyError = 'There was an issue with your Google account email. Please try signing out of Google completely and signing back in.';
-        } else if (response.status === 400) {
-          userFriendlyError = 'Invalid Google account data. Please try signing out of Google and signing back in.';
-        } else if (response.status === 401) {
-          userFriendlyError = 'Authentication failed. Please log out of Betty and log back in.';
-        } else if (response.status >= 500) {
-          userFriendlyError = 'Server error. Please try again in a few moments.';
-        }
-        
-        throw new Error(userFriendlyError);
+        console.error('❌ Backend error:', errorData);
+        throw new Error(errorData.detail || 'Failed to connect Google account');
       }
 
       const result = JSON.parse(responseText);
-      console.log('✅ Backend response received:', {
-        hasUserInfo: !!result.user_info,
-        userInfoKeys: result.user_info ? Object.keys(result.user_info) : [],
-        message: result.message
-      });
-      
       await updateState(true, result.user_info || extractedUserData);
       
       console.log('✅ Google connection successful');
