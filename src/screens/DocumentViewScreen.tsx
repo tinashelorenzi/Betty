@@ -1,4 +1,4 @@
-// src/screens/DocumentViewScreen.tsx - Fixed scrolling and zoom issue
+// src/screens/DocumentViewScreen.tsx - ENHANCED WITH PERSISTENT GOOGLE AUTH
 import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
@@ -21,8 +21,6 @@ import * as Animatable from 'react-native-animatable';
 import Markdown from 'react-native-markdown-display';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNativeGoogleAuth } from '../hooks/useNativeGoogleAuth';
-import { documentExportService } from '../services/documentExportService';
-import ErrorBoundary from '../components/ErrorBoundary';
 
 const { width, height } = Dimensions.get('window');
 
@@ -40,16 +38,40 @@ interface DocumentViewParams {
 
 const DocumentViewScreen: React.FC<DocumentViewScreenProps> = ({ navigation, route }) => {
   const { title, content, format, documentId } = route.params as DocumentViewParams;
+  
+  // State management
   const [isPushing, setIsPushing] = useState(false);
   const [isSharing, setIsSharing] = useState(false);
   const [zoomLevel, setZoomLevel] = useState(1);
+  const [exportProgress, setExportProgress] = useState(0);
   
   const scrollViewRef = useRef<ScrollView>(null);
   
-  // Add the Google Auth hook
-  const { isConnected, checkStatus: refreshGoogleStatus } = useNativeGoogleAuth();
+  // Enhanced Google Auth hook
+  const { 
+    isConnected, 
+    isLoading: googleLoading,
+    userInfo,
+    refreshStatus 
+  } = useNativeGoogleAuth();
 
   const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || 'https://api.bettygenius.co.za';
+
+  // Check Google connection status when component mounts
+  useEffect(() => {
+    console.log('DocumentViewScreen mounted - checking Google status');
+    refreshStatus();
+  }, [refreshStatus]);
+
+  // Re-check status when returning from other screens
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', () => {
+      console.log('DocumentViewScreen focused - refreshing Google status');
+      refreshStatus();
+    });
+
+    return unsubscribe;
+  }, [navigation, refreshStatus]);
 
   const getToken = async (): Promise<string | null> => {
     try {
@@ -76,61 +98,158 @@ const DocumentViewScreen: React.FC<DocumentViewScreenProps> = ({ navigation, rou
     }
   };
 
-  // Export document to Google Drive using documentExportService
+  // Enhanced Google Drive export functionality
   const handlePushToGoogleDrive = async () => {
-    if (!documentId) {
+    // First, refresh the Google connection status
+    await refreshStatus();
+    
+    if (!isConnected) {
       Alert.alert(
-        'Document ID Required',
-        'This document cannot be exported because it lacks a document ID.',
-        [{ text: 'OK', style: 'default' }]
+        'Google Account Required',
+        'Your Google account is not connected. Connect your Google account to export documents to Google Drive.',
+        [
+          {
+            text: 'Cancel',
+            style: 'cancel'
+          },
+          {
+            text: 'Connect Google Account',
+            onPress: () => navigation.navigate('Profile')
+          }
+        ]
       );
       return;
     }
 
-    setIsPushing(true);
-    
+    // Show confirmation dialog
+    Alert.alert(
+      'Export to Google Drive',
+      `Export "${title}" to your Google Drive?`,
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel'
+        },
+        {
+          text: 'Export',
+          onPress: () => performGoogleDriveExport()
+        }
+      ]
+    );
+  };
+
+  const performGoogleDriveExport = async () => {
     try {
-      const success = await documentExportService.exportDocumentWithUI({
-        documentId: documentId,
-        title: title,
-        content: content,
-        format: format === 'markdown' ? 'html' : 'plain'
+      setIsPushing(true);
+      setExportProgress(0);
+
+      const authToken = await getToken();
+      if (!authToken) {
+        throw new Error('Authentication required');
+      }
+
+      // Simulate progress updates
+      const progressInterval = setInterval(() => {
+        setExportProgress(prev => Math.min(prev + 10, 90));
+      }, 200);
+
+      const response = await fetch(`${API_BASE_URL}/documents/export/google-drive`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${authToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          title: title,
+          content: content,
+          format: format,
+          document_id: documentId
+        }),
       });
 
-      if (success) {
-        console.log('✅ Document exported successfully to Google Docs');
+      clearInterval(progressInterval);
+      setExportProgress(100);
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        
+        // Handle specific Google auth errors
+        if (response.status === 401 && errorData.detail?.includes('Google')) {
+          throw new Error('Google authentication expired. Please reconnect your Google account.');
+        }
+        
+        throw new Error(errorData.detail || `Export failed with status ${response.status}`);
       }
+
+      const result = await response.json();
+      
+      Alert.alert(
+        'Export Successful! 🎉',
+        `"${title}" has been successfully exported to your Google Drive.`,
+        [
+          {
+            text: 'View in Drive',
+            onPress: () => {
+              if (result.document_url) {
+                // Open Google Drive URL if available
+                console.log('Opening Google Drive URL:', result.document_url);
+              }
+            }
+          },
+          {
+            text: 'Done',
+            style: 'default'
+          }
+        ]
+      );
+
     } catch (error: any) {
-      console.error('❌ Export error:', error);
+      console.error('Google Drive export error:', error);
+      
+      let errorMessage = error.message || 'Failed to export document to Google Drive';
+      let actions: Array<{text: string, style?: 'default' | 'cancel' | 'destructive', onPress?: () => void}> = [
+        { text: 'OK', style: 'default' }
+      ];
+
+      // Handle Google authentication errors
+      if (errorMessage.includes('Google authentication expired') || 
+          errorMessage.includes('Google account')) {
+        actions = [
+          { text: 'Cancel', style: 'cancel' },
+          { 
+            text: 'Reconnect Google',
+            style: 'default',
+            onPress: () => navigation.navigate('Profile')
+          }
+        ];
+      }
+
       Alert.alert(
         'Export Failed',
-        'Failed to export document to Google Drive. Please try again.',
-        [{ text: 'OK', style: 'default' }]
+        errorMessage,
+        actions
       );
+      
     } finally {
       setIsPushing(false);
+      setExportProgress(0);
     }
   };
 
-  // Check Google connection status when component mounts
-  useEffect(() => {
-    refreshGoogleStatus();
-  }, [refreshGoogleStatus]);
-
   const handleShare = async () => {
-    setIsSharing(true);
     try {
-      const result = await Share.share({
-        message: `${title}\n\n${content}`,
+      setIsSharing(true);
+      
+      await Share.share({
         title: title,
+        message: `${title}\n\n${content}`,
       });
-
-      if (result.action === Share.sharedAction) {
-        console.log('Document shared successfully');
-      }
-    } catch (error) {
+      
+    } catch (error: any) {
       console.error('Error sharing document:', error);
-      Alert.alert('Share Failed', 'Unable to share the document. Please try again.');
+      if (error.code !== 'CANCELLED') {
+        Alert.alert('Error', 'Failed to share document');
+      }
     } finally {
       setIsSharing(false);
     }
@@ -143,526 +262,315 @@ const DocumentViewScreen: React.FC<DocumentViewScreenProps> = ({ navigation, rou
           {content}
         </Markdown>
       );
-    } else {
-      return (
-        <Text style={styles.textContent}>
-          {content}
-        </Text>
-      );
     }
+    
+    return (
+      <Text style={[styles.textContent, { fontSize: 16 * zoomLevel }]}>
+        {content}
+      </Text>
+    );
   };
 
-  // Update the push button to show connection status
-  const PushToGoogleButton = () => (
-    <TouchableOpacity
-      style={[
-        styles.floatingButton,
-        !isConnected && styles.disabledButton,
-        isPushing && styles.loadingButton
-      ]}
-      onPress={handlePushToGoogleDrive}
-      disabled={isPushing}
-      activeOpacity={0.8}
-    >
-      <LinearGradient
-        colors={
-          !isConnected 
-            ? ['#9ca3af', '#6b7280']
-            : isPushing 
-              ? ['#93c5fd', '#60a5fa'] 
-              : ['#4285f4', '#1a73e8']
-        }
-        style={styles.floatingButtonGradient}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 0 }}
-      >
-        {isPushing ? (
-          <ActivityIndicator size="small" color="#fff" />
-        ) : (
-          <Ionicons 
-            name={isConnected ? "cloud-upload" : "cloud-offline"} 
-            size={20} 
-            color="#fff" 
-          />
-        )}
-        <Text style={styles.floatingButtonText}>
-          {isPushing 
-            ? 'Pushing...' 
-            : isConnected 
-              ? 'Push to Google Drive' 
-              : 'Connect Google First'
-          }
-        </Text>
-      </LinearGradient>
-    </TouchableOpacity>
-  );
-
   return (
-    <ErrorBoundary 
-      fallback={({ error, resetError }) => (
-        <View style={styles.errorContainer}>
-          <Text style={styles.errorTitle}>Document Viewer Error</Text>
-          <Text style={styles.errorText}>{error.message}</Text>
-          
-          {/* Enhanced error handling for backend issues */}
-          {error.message.includes('firestore') || error.message.includes('Database update failed') ? (
-            <View style={styles.backendErrorContainer}>
-              <Text style={styles.backendErrorTitle}>⚠️ Backend Service Issue</Text>
-              <Text style={styles.backendErrorText}>
-                We're experiencing technical difficulties with our database service. 
-                This is a temporary issue and doesn't affect your document viewing.
-              </Text>
-              <Text style={styles.backendErrorHint}>
-                Your document is still accessible, but there may be a delay in saving to our database. 
-                Please try again in a few minutes.
-              </Text>
-            </View>
-          ) : null}
-          
-          <TouchableOpacity style={styles.retryButton} onPress={resetError}>
-            <Text style={styles.retryButtonText}>Retry Document Viewer</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-    >
-      <SafeAreaView style={styles.container}>
-      {/* Header - Fixed */}
+    <SafeAreaView style={styles.container}>
+      {/* Header */}
       <View style={styles.header}>
-        <View style={styles.headerLeft}>
-          <TouchableOpacity 
-            style={styles.backButton}
-            onPress={() => navigation.goBack()}
-          >
-            <Ionicons name="arrow-back" size={24} color="#1e293b" />
-          </TouchableOpacity>
-          <View style={styles.headerInfo}>
-            <Text style={styles.headerTitle} numberOfLines={1}>
-              {title}
-            </Text>
-            <Text style={styles.headerSubtitle}>
-              {format === 'markdown' ? 'Markdown Document' : 'Text Document'}
-            </Text>
-          </View>
-        </View>
+        <TouchableOpacity
+          onPress={() => navigation.goBack()}
+          style={styles.backButton}
+        >
+          <Ionicons name="arrow-back" size={24} color="#667eea" />
+        </TouchableOpacity>
+        
+        <Text style={styles.headerTitle} numberOfLines={1}>
+          {title}
+        </Text>
         
         <View style={styles.headerActions}>
-          <TouchableOpacity 
-            style={styles.headerActionButton}
-            onPress={handleZoomOut}
-          >
-            <Ionicons name="remove" size={22} color="#64748b" />
-          </TouchableOpacity>
-          <Text style={styles.zoomText}>{Math.round(zoomLevel * 100)}%</Text>
-          <TouchableOpacity 
-            style={styles.headerActionButton}
-            onPress={handleZoomIn}
-          >
-            <Ionicons name="add" size={22} color="#64748b" />
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={styles.headerActionButton}
-            onPress={resetZoom}
-          >
-            <Ionicons name="resize-outline" size={22} color="#64748b" />
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={styles.headerActionButton}
+          <TouchableOpacity
             onPress={handleShare}
+            style={[styles.actionButton, isSharing && styles.actionButtonDisabled]}
             disabled={isSharing}
           >
             {isSharing ? (
-              <ActivityIndicator size="small" color="#64748b" />
+              <ActivityIndicator size="small" color="#667eea" />
             ) : (
-              <Ionicons name="share-outline" size={22} color="#64748b" />
+              <Ionicons name="share-outline" size={20} color="#667eea" />
             )}
           </TouchableOpacity>
         </View>
       </View>
 
-      {/* Scrollable Content - Fixed Layout */}
-      <ScrollView 
+      {/* Content */}
+      <ScrollView
         ref={scrollViewRef}
-        style={styles.scrollView}
-        contentContainerStyle={styles.scrollContentContainer}
-        showsVerticalScrollIndicator={true}
-        showsHorizontalScrollIndicator={zoomLevel > 1}
-        bounces={true}
-        scrollEventThrottle={16}
-        maximumZoomScale={3}
-        minimumZoomScale={0.5}
-        zoomScale={zoomLevel}
-        bouncesZoom={true}
+        style={styles.contentContainer}
+        showsVerticalScrollIndicator={false}
+        pinchGestureEnabled={true}
       >
-        <View style={[styles.documentContent, { transform: [{ scale: zoomLevel }] }]}>
+        <Animatable.View animation="fadeInUp" duration={600} style={styles.contentWrapper}>
           {renderContent()}
-        </View>
+        </Animatable.View>
       </ScrollView>
 
-      {/* Floating Google Drive Button */}
-      <View style={styles.floatingButtonContainer}>
-        <PushToGoogleButton />
+      {/* Zoom Controls */}
+      <View style={styles.zoomControls}>
+        <TouchableOpacity onPress={handleZoomOut} style={styles.zoomButton}>
+          <Ionicons name="remove" size={20} color="#667eea" />
+        </TouchableOpacity>
+        
+        <TouchableOpacity onPress={resetZoom} style={styles.zoomButton}>
+          <Text style={styles.zoomText}>{Math.round(zoomLevel * 100)}%</Text>
+        </TouchableOpacity>
+        
+        <TouchableOpacity onPress={handleZoomIn} style={styles.zoomButton}>
+          <Ionicons name="add" size={20} color="#667eea" />
+        </TouchableOpacity>
       </View>
-      </SafeAreaView>
-    </ErrorBoundary>
+
+      {/* Google Drive Export Button */}
+      <Animatable.View animation="slideInUp" delay={800} style={styles.actionBar}>
+        <LinearGradient
+          colors={['#667eea', '#764ba2']}
+          style={[styles.exportButton, isPushing && styles.exportButtonDisabled]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 0 }}
+        >
+          <TouchableOpacity
+            onPress={handlePushToGoogleDrive}
+            style={styles.exportButtonContent}
+            disabled={isPushing}
+          >
+            {isPushing ? (
+              <>
+                <ActivityIndicator size="small" color="#fff" />
+                <Text style={styles.exportButtonText}>
+                  Exporting... {exportProgress}%
+                </Text>
+              </>
+            ) : (
+              <>
+                <View style={styles.exportButtonIcon}>
+                  {googleLoading ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : isConnected ? (
+                    <Ionicons name="logo-google" size={20} color="#fff" />
+                  ) : (
+                    <Ionicons name="cloud-upload-outline" size={20} color="#fff" />
+                  )}
+                </View>
+                <Text style={styles.exportButtonText}>
+                  {isConnected ? 'Export to Google Drive' : 'Connect Google to Export'}
+                </Text>
+                <View style={styles.connectionStatus}>
+                  {isConnected ? (
+                    <View style={styles.statusIndicatorConnected} />
+                  ) : (
+                    <View style={styles.statusIndicatorDisconnected} />
+                  )}
+                </View>
+              </>
+            )}
+          </TouchableOpacity>
+        </LinearGradient>
+        
+        {isConnected && userInfo && (
+          <Text style={styles.connectedAsText}>
+            Connected as {userInfo.user_email}
+          </Text>
+        )}
+      </Animatable.View>
+    </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f8fafc',
+    backgroundColor: '#F8FAFC',
   },
-  // Fixed header - not scrollable
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
     paddingHorizontal: 16,
     paddingVertical: 12,
-    backgroundColor: 'white',
+    backgroundColor: '#fff',
     borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
+    borderBottomColor: '#E5E7EB',
     elevation: 2,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
+    shadowOpacity: 0.1,
     shadowRadius: 2,
-    // Remove flex to make it fixed height
-  },
-  headerLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
   },
   backButton: {
     padding: 8,
     marginRight: 8,
   },
-  headerInfo: {
-    flex: 1,
-    minWidth: 0, // Allow text truncation
-  },
   headerTitle: {
+    flex: 1,
     fontSize: 18,
     fontWeight: '600',
-    color: '#1e293b',
-    lineHeight: 24,
-  },
-  headerSubtitle: {
-    fontSize: 13,
-    color: '#64748b',
-    fontWeight: '500',
-    marginTop: 2,
+    color: '#1F2937',
+    marginRight: 16,
   },
   headerActions: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
   },
-  headerActionButton: {
+  actionButton: {
     padding: 8,
-    borderRadius: 8,
+    marginLeft: 8,
   },
-  zoomText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#64748b',
-    minWidth: 45,
-    textAlign: 'center',
+  actionButtonDisabled: {
+    opacity: 0.5,
   },
-  // Fixed ScrollView layout
-  scrollView: {
-    flex: 1, // Takes remaining space
+  contentContainer: {
+    flex: 1,
   },
-  scrollContentContainer: {
-    padding: 16,
-    paddingBottom: 100, // Space for floating button
-    flexGrow: 1, // Allow content to grow
-  },
-  documentContent: {
-    backgroundColor: 'white',
+  contentWrapper: {
     padding: 20,
-    borderRadius: 12,
-    elevation: 1,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    minHeight: height * 0.8, // Ensure content is tall enough to scroll
-    alignSelf: 'stretch', // Full width
+    minHeight: height - 200,
   },
   textContent: {
     fontSize: 16,
     lineHeight: 24,
-    color: '#1e293b',
-    fontFamily: Platform.select({
-      ios: 'System',
-      android: 'Roboto',
-      default: 'System'
-    }),
+    color: '#374151',
+    textAlign: 'left',
   },
-  floatingButtonContainer: {
+  zoomControls: {
     position: 'absolute',
-    bottom: 30,
-    right: 20,
-    zIndex: 1000,
+    top: 100,
+    right: 16,
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    flexDirection: 'column',
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
   },
-  floatingButton: {
-    borderRadius: 28,
-    elevation: 8,
-    shadowColor: '#4285f4',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
+  zoomButton: {
+    padding: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 40,
   },
-  floatingButtonGradient: {
+  zoomText: {
+    fontSize: 12,
+    color: '#667eea',
+    fontWeight: '600',
+  },
+  actionBar: {
+    padding: 16,
+    backgroundColor: '#fff',
+    borderTopWidth: 1,
+    borderTopColor: '#E5E7EB',
+  },
+  exportButton: {
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  exportButtonDisabled: {
+    opacity: 0.7,
+  },
+  exportButtonContent: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 14,
-    borderRadius: 28,
-    minWidth: 140,
     justifyContent: 'center',
+    paddingVertical: 16,
+    paddingHorizontal: 20,
   },
-  floatingButtonText: {
-    color: 'white',
+  exportButtonIcon: {
+    marginRight: 12,
+  },
+  exportButtonText: {
+    color: '#fff',
+    fontSize: 16,
     fontWeight: '600',
-    fontSize: 15,
+    flex: 1,
+    textAlign: 'center',
+  },
+  connectionStatus: {
     marginLeft: 8,
   },
-  disabledButton: {
-    opacity: 0.6,
+  statusIndicatorConnected: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#10B981',
   },
-  loadingButton: {
-    opacity: 0.8,
+  statusIndicatorDisconnected: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#EF4444',
+  },
+  connectedAsText: {
+    textAlign: 'center',
+    fontSize: 12,
+    color: '#6B7280',
+    marginTop: 8,
   },
 });
 
-// Markdown styles for better rendering
-const markdownStyles = StyleSheet.create({
+const markdownStyles = {
   body: {
     fontSize: 16,
     lineHeight: 24,
-    color: '#1e293b',
-    fontFamily: Platform.select({
-      ios: 'System',
-      android: 'Roboto',
-      default: 'System'
-    }),
+    color: '#374151',
   },
   heading1: {
     fontSize: 28,
     fontWeight: 'bold',
-    color: '#1e293b',
+    color: '#1F2937',
     marginBottom: 16,
-    marginTop: 0,
-    lineHeight: 36,
   },
   heading2: {
     fontSize: 24,
     fontWeight: 'bold',
-    color: '#374151',
-    marginBottom: 14,
-    marginTop: 24,
-    lineHeight: 32,
+    color: '#1F2937',
+    marginBottom: 12,
   },
   heading3: {
     fontSize: 20,
     fontWeight: '600',
-    color: '#374151',
-    marginBottom: 12,
-    marginTop: 20,
-    lineHeight: 28,
-  },
-  heading4: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#4b5563',
-    marginBottom: 10,
-    marginTop: 16,
-    lineHeight: 26,
-  },
-  heading5: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#4b5563',
+    color: '#1F2937',
     marginBottom: 8,
-    marginTop: 14,
-    lineHeight: 24,
-  },
-  heading6: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#6b7280',
-    marginBottom: 8,
-    marginTop: 12,
-    lineHeight: 22,
   },
   paragraph: {
+    marginBottom: 16,
     fontSize: 16,
     lineHeight: 24,
     color: '#374151',
-    marginBottom: 16,
-  },
-  strong: {
-    fontWeight: 'bold',
-    color: '#1e293b',
-  },
-  em: {
-    fontStyle: 'italic',
-    color: '#4b5563',
   },
   list_item: {
     fontSize: 16,
     lineHeight: 24,
     color: '#374151',
-    marginBottom: 8,
-  },
-  bullet_list: {
-    marginBottom: 16,
-  },
-  ordered_list: {
-    marginBottom: 16,
   },
   code_inline: {
-    backgroundColor: '#f1f5f9',
-    color: '#667eea',
-    fontFamily: Platform.select({
-      ios: 'Menlo',
-      android: 'monospace',
-      default: 'monospace'
-    }),
-    fontSize: 14,
+    backgroundColor: '#F3F4F6',
     paddingHorizontal: 4,
     paddingVertical: 2,
     borderRadius: 4,
-  },
-  fence: {
-    backgroundColor: '#f8fafc',
-    borderColor: '#e2e8f0',
-    borderWidth: 1,
-    borderRadius: 8,
-    padding: 16,
-    marginVertical: 12,
+    fontSize: 14,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },
   code_block: {
-    fontFamily: Platform.select({
-      ios: 'Menlo',
-      android: 'monospace',  
-      default: 'monospace'
-    }),
-    fontSize: 14,
-    lineHeight: 20,
-    color: '#374151',
+    backgroundColor: '#F3F4F6',
+    padding: 12,
+    borderRadius: 8,
+    marginVertical: 8,
   },
   blockquote: {
-    backgroundColor: '#f8fafc',
     borderLeftWidth: 4,
     borderLeftColor: '#667eea',
     paddingLeft: 16,
-    paddingVertical: 12,
-    marginVertical: 12,
+    marginLeft: 8,
     fontStyle: 'italic',
   },
-  table: {
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 8,
-    marginVertical: 12,
-    overflow: 'hidden',
-  },
-  thead: {
-    backgroundColor: '#f8fafc',
-  },
-  tbody: {
-    backgroundColor: 'white',
-  },
-  th: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#374151',
-    padding: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
-  },
-  td: {
-    fontSize: 14,
-    color: '#4b5563',
-    padding: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
-  },
-  link: {
-    color: '#667eea',
-    textDecorationLine: 'underline',
-  },
-  hr: {
-    backgroundColor: '#e2e8f0',
-    height: 1,
-    marginVertical: 20,
-  },
-
-  // Error Styles
-  errorContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-    backgroundColor: '#fff5f5',
-  },
-  errorTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#e53e3e',
-    marginBottom: 8,
-  },
-  errorText: {
-    color: '#e53e3e',
-    fontSize: 14,
-    marginBottom: 10,
-    textAlign: 'center',
-  },
-  retryButton: {
-    backgroundColor: '#3182ce',
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 6,
-    marginTop: 10,
-  },
-  retryButtonText: {
-    color: 'white',
-    fontSize: 14,
-    fontWeight: '500',
-  },
-
-  // Backend Error Styles
-  backendErrorContainer: {
-    backgroundColor: '#fff7ed',
-    padding: 12,
-    borderRadius: 6,
-    borderColor: '#fed7aa',
-    borderWidth: 1,
-    marginTop: 10,
-    marginBottom: 10,
-  },
-  backendErrorTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#c2410c',
-    marginBottom: 6,
-  },
-  backendErrorText: {
-    color: '#9a3412',
-    fontSize: 12,
-    marginBottom: 6,
-    lineHeight: 16,
-  },
-  backendErrorHint: {
-    color: '#7c2d12',
-    fontSize: 11,
-    fontStyle: 'italic',
-    lineHeight: 14,
-  },
-});
+};
 
 export default DocumentViewScreen;

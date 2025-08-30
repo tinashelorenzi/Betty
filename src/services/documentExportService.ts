@@ -119,7 +119,7 @@ export class DocumentExportService {
           'Please connect your Google account in the Profile section before exporting documents.',
           [
             { text: 'Cancel', style: 'cancel' },
-            { text: 'Go to Profile', onPress: () => {
+            { text: 'Go to Profile', style: 'default', onPress: () => {
               // You can navigate to profile here if you have navigation access
               // navigation.navigate('Profile');
             }}
@@ -231,6 +231,7 @@ export class DocumentExportService {
             { text: 'OK', style: 'default' },
             ...(result.google_doc_url ? [{
               text: 'Open Document',
+              style: 'default' as const,
               onPress: () => {
                 // Open the Google Doc if possible
                 if (result.google_doc_url) {

@@ -143,8 +143,8 @@ const RegisterScreen: React.FC<RegisterScreenProps> = () => {
     try {
       const response = await authService.register(formData);
       
-      // ✅ Just update auth context - AppNavigator will handle navigation automatically
-      await contextLogin(response.user, response.access_token);
+      // ✅ Use AuthContext login with credentials to auto-login after registration
+      await contextLogin(formData.email, formData.password);
       
       Alert.alert(
         'Registration Successful!',

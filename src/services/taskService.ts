@@ -42,7 +42,7 @@ export interface Task {
   created_at: string;
   updated_at: string;
   user_id: string;
-  completed_at?: string;
+  completed_at?: string | null;
   estimated_duration?: number;
   actual_duration?: number;
   tags?: string[];
@@ -279,9 +279,41 @@ class TaskService {
     }
   }
 
+  async toggleTaskCompletion(taskId: string): Promise<Task> {
+    try {
+      const response = await this.api.post<Task>(`/planner/tasks/${taskId}/toggle`);
+      return response.data;
+    } catch (error) {
+      console.error('Error toggling task completion:', error);
+      throw new Error('Failed to toggle task completion');
+    }
+  }
+
   // ============================================================================
   // DASHBOARD METHODS - UPDATED
   // ============================================================================
+
+  // Alias method for TaskContext compatibility
+  async getDashboard(): Promise<PlannerDashboard> {
+    return this.getPlannerDashboard();
+  }
+
+  async getTodayTasks(): Promise<Task[]> {
+    const today = new Date().toISOString().split('T')[0];
+    return this.getTasks({
+      due_date_from: today,
+      due_date_to: today
+    });
+  }
+
+  async getUpcomingTasks(days: number = 7): Promise<Task[]> {
+    const startDate = new Date().toISOString().split('T')[0];
+    const endDate = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    return this.getTasks({
+      due_date_from: startDate,
+      due_date_to: endDate
+    });
+  }
 
   async getPlannerDashboard(): Promise<PlannerDashboard> {
     try {

@@ -98,10 +98,8 @@ const LoginScreen: React.FC<LoginScreenProps> = () => {
   
     setLoading(true);
     try {
-      const response = await authService.login(formData);
-      
-      // ✅ Just update auth context - AppNavigator will handle navigation automatically
-      await contextLogin(response.user, response.access_token);
+      // ✅ Use AuthContext login which handles everything internally
+      await contextLogin(formData.email, formData.password);
       
       // No manual navigation needed! The AppNavigator will detect the auth state change
       // and automatically navigate to MainApp

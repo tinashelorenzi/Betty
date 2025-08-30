@@ -1,6 +1,6 @@
 // src/contexts/TaskContext.tsx
 import React, { createContext, useContext, useReducer, useEffect, ReactNode } from 'react';
-import { taskService, Task, TaskStatus, TaskPriority, PlannerDashboard } from '../services/taskService';
+import taskService, { Task, TaskStatus, TaskPriority, PlannerDashboard } from '../services/taskService';
 
 // ============================================================================
 // TYPES

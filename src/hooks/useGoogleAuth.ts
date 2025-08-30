@@ -215,7 +215,7 @@ export const useGoogleAuth = (): UseGoogleAuthReturn => {
         },
         body: JSON.stringify({
           document_name: documentName.trim(),
-          user_id: userInfo?.id || 'anonymous'
+          user_id: (userInfo as any)?.email || (userInfo as any)?.id || 'anonymous'
         }),
       });
 
