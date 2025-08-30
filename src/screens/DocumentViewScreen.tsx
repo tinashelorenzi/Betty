@@ -21,6 +21,8 @@ import * as Animatable from 'react-native-animatable';
 import Markdown from 'react-native-markdown-display';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNativeGoogleAuth } from '../hooks/useNativeGoogleAuth';
+import { documentExportService } from '../services/documentExportService';
+import ErrorBoundary from '../components/ErrorBoundary';
 
 const { width, height } = Dimensions.get('window');
 
@@ -45,7 +47,7 @@ const DocumentViewScreen: React.FC<DocumentViewScreenProps> = ({ navigation, rou
   const scrollViewRef = useRef<ScrollView>(null);
   
   // Add the Google Auth hook
-  const { isConnected, checkStatus } = useNativeGoogleAuth();
+  const { isConnected, checkStatus: refreshGoogleStatus } = useNativeGoogleAuth();
 
   const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || 'https://api.bettygenius.co.za';
 
@@ -74,38 +76,46 @@ const DocumentViewScreen: React.FC<DocumentViewScreenProps> = ({ navigation, rou
     }
   };
 
-  // TODO: Implement Google Drive push with native Google auth
+  // Export document to Google Drive using documentExportService
   const handlePushToGoogleDrive = async () => {
-    // Check if Google is connected first
-    if (!isConnected) {
+    if (!documentId) {
       Alert.alert(
-        'Google Account Not Connected',
-        'Please connect your Google account first to push documents to Google Drive.',
-        [
-          {
-            text: 'Cancel',
-            style: 'cancel'
-          },
-          {
-            text: 'Go to Profile',
-            onPress: () => navigation.navigate('Profile')
-          }
-        ]
+        'Document ID Required',
+        'This document cannot be exported because it lacks a document ID.',
+        [{ text: 'OK', style: 'default' }]
       );
       return;
     }
 
-    Alert.alert(
-      'Google Drive Export',
-      'Google Drive export will be implemented with the native Google authentication.',
-      [{ text: 'OK' }]
-    );
+    setIsPushing(true);
+    
+    try {
+      const success = await documentExportService.exportDocumentWithUI({
+        documentId: documentId,
+        title: title,
+        content: content,
+        format: format === 'markdown' ? 'html' : 'plain'
+      });
+
+      if (success) {
+        console.log('✅ Document exported successfully to Google Docs');
+      }
+    } catch (error: any) {
+      console.error('❌ Export error:', error);
+      Alert.alert(
+        'Export Failed',
+        'Failed to export document to Google Drive. Please try again.',
+        [{ text: 'OK', style: 'default' }]
+      );
+    } finally {
+      setIsPushing(false);
+    }
   };
 
   // Check Google connection status when component mounts
   useEffect(() => {
-    checkStatus();
-  }, []);
+    refreshGoogleStatus();
+  }, [refreshGoogleStatus]);
 
   const handleShare = async () => {
     setIsSharing(true);
@@ -188,7 +198,34 @@ const DocumentViewScreen: React.FC<DocumentViewScreenProps> = ({ navigation, rou
   );
 
   return (
-    <SafeAreaView style={styles.container}>
+    <ErrorBoundary 
+      fallback={({ error, resetError }) => (
+        <View style={styles.errorContainer}>
+          <Text style={styles.errorTitle}>Document Viewer Error</Text>
+          <Text style={styles.errorText}>{error.message}</Text>
+          
+          {/* Enhanced error handling for backend issues */}
+          {error.message.includes('firestore') || error.message.includes('Database update failed') ? (
+            <View style={styles.backendErrorContainer}>
+              <Text style={styles.backendErrorTitle}>⚠️ Backend Service Issue</Text>
+              <Text style={styles.backendErrorText}>
+                We're experiencing technical difficulties with our database service. 
+                This is a temporary issue and doesn't affect your document viewing.
+              </Text>
+              <Text style={styles.backendErrorHint}>
+                Your document is still accessible, but there may be a delay in saving to our database. 
+                Please try again in a few minutes.
+              </Text>
+            </View>
+          ) : null}
+          
+          <TouchableOpacity style={styles.retryButton} onPress={resetError}>
+            <Text style={styles.retryButtonText}>Retry Document Viewer</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+    >
+      <SafeAreaView style={styles.container}>
       {/* Header - Fixed */}
       <View style={styles.header}>
         <View style={styles.headerLeft}>
@@ -265,7 +302,8 @@ const DocumentViewScreen: React.FC<DocumentViewScreenProps> = ({ navigation, rou
       <View style={styles.floatingButtonContainer}>
         <PushToGoogleButton />
       </View>
-    </SafeAreaView>
+      </SafeAreaView>
+    </ErrorBoundary>
   );
 };
 
@@ -562,6 +600,68 @@ const markdownStyles = StyleSheet.create({
     backgroundColor: '#e2e8f0',
     height: 1,
     marginVertical: 20,
+  },
+
+  // Error Styles
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+    backgroundColor: '#fff5f5',
+  },
+  errorTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#e53e3e',
+    marginBottom: 8,
+  },
+  errorText: {
+    color: '#e53e3e',
+    fontSize: 14,
+    marginBottom: 10,
+    textAlign: 'center',
+  },
+  retryButton: {
+    backgroundColor: '#3182ce',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 6,
+    marginTop: 10,
+  },
+  retryButtonText: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+
+  // Backend Error Styles
+  backendErrorContainer: {
+    backgroundColor: '#fff7ed',
+    padding: 12,
+    borderRadius: 6,
+    borderColor: '#fed7aa',
+    borderWidth: 1,
+    marginTop: 10,
+    marginBottom: 10,
+  },
+  backendErrorTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#c2410c',
+    marginBottom: 6,
+  },
+  backendErrorText: {
+    color: '#9a3412',
+    fontSize: 12,
+    marginBottom: 6,
+    lineHeight: 16,
+  },
+  backendErrorHint: {
+    color: '#7c2d12',
+    fontSize: 11,
+    fontStyle: 'italic',
+    lineHeight: 14,
   },
 });
 

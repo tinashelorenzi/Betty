@@ -6,9 +6,10 @@ import { TaskProvider } from './src/contexts/TaskContext';
 import { NavigationContainer } from '@react-navigation/native';
 import { AuthProvider } from './src/contexts/AuthContext';
 import AppNavigator from './src/navigation/AppNavigator';
+import AppStatusBar from './src/components/AppStatusBar';
 
 // Import any other providers you might have
-// import { ThemeProvider } from './src/contexts/ThemeContext';
+import { ThemeProvider } from './src/contexts/ThemeContext';
 
 const App: React.FC = () => {
   return (
@@ -16,10 +17,10 @@ const App: React.FC = () => {
     <SafeAreaProvider>
       <AuthProvider>
         {/* Add other providers here if needed */}
-        {/* <ThemeProvider> */}
+        <ThemeProvider>
+          <AppStatusBar />
           <AppNavigator />
-          <StatusBar style="light" />
-        {/* </ThemeProvider> */}
+        </ThemeProvider>
       </AuthProvider>
     </SafeAreaProvider>
   );

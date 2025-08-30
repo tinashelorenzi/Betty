@@ -9,7 +9,7 @@ const AppStatusBar: React.FC = () => {
     <StatusBar 
       style={isDarkMode ? 'light' : 'light'} // Keep light for gradient screens
       backgroundColor="transparent"
-      translucent={true}
+      translucent={false}
     />
   );
 };
